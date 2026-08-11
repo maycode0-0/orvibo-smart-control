@@ -209,6 +209,36 @@ class TestOptionsReauth(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    def test_device_selector_uses_checkbox_list_mode(self):
+        select_config = self.module.selector.SelectSelectorConfig
+        select_config.reset_mock()
+        devices = [
+            {
+                "device_id": "light-1",
+                "device_name": "客厅灯",
+                "device_type_raw": 38,
+            },
+            {
+                "device_id": "light-2",
+                "device_name": "卧室灯",
+                "device_type_raw": 38,
+            },
+        ]
+
+        with patch.object(
+            self.module,
+            "_device_option_label",
+            side_effect=lambda device: device["device_name"],
+        ):
+            self.module._device_selection_schema(devices, set())
+
+        config = select_config.call_args.kwargs
+        self.assertTrue(config["multiple"])
+        self.assertIs(
+            config["mode"],
+            self.module.selector.SelectSelectorMode.LIST,
+        )
+
     async def test_device_name_filter_saves_rules_and_preserves_options(self):
         flow, _ = self._flow()
 

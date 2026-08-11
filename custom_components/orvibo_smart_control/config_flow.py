@@ -193,7 +193,7 @@ def _device_selection_schema(
             selector.SelectSelectorConfig(
                 options=options,
                 multiple=True,
-                mode=selector.SelectSelectorMode.DROPDOWN,
+                mode=selector.SelectSelectorMode.LIST,
             )
         )
     return vol.Schema(fields)
