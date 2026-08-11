@@ -1,0 +1,195 @@
+import logging
+from typing import Optional
+
+from homeassistant.components.cover import CoverEntity, CoverDeviceClass, CoverEntityFeature
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+
+from .const import DOMAIN, MANUFACTURER, DEVICE_TYPE_COVER, DEVICE_TYPE_CLOTHES_HORSE
+from .coordinator import OrviboSmartControlCoordinator
+from .selection import selected_device_ids
+from .device_types import DeviceCategory, classify_device
+
+_LOGGER = logging.getLogger(__name__)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    config_entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    coordinator: OrviboSmartControlCoordinator = hass.data[DOMAIN][config_entry.entry_id]
+
+    selected_ids = selected_device_ids(config_entry.options, coordinator.devices)
+
+    entities = []
+    for device_id, device in coordinator.devices.items():
+        if device_id not in selected_ids:
+            continue
+        if device.get("device_type") == DEVICE_TYPE_COVER:
+            entities.append(OrviboCover(coordinator, device))
+        elif device.get("device_type") == DEVICE_TYPE_CLOTHES_HORSE:
+            entities.append(OrviboClothesHorseMotor(coordinator, device))
+
+    async_add_entities(entities)
+
+
+class OrviboCover(CoordinatorEntity, CoverEntity):
+    _attr_has_entity_name = True
+    _attr_supported_features = (
+        CoverEntityFeature.OPEN
+        | CoverEntityFeature.CLOSE
+        | CoverEntityFeature.STOP
+        | CoverEntityFeature.SET_POSITION
+    )
+
+    def __init__(self, coordinator: OrviboSmartControlCoordinator, device: dict):
+        super().__init__(coordinator)
+        self._device = device
+        self._device_id = device["device_id"]
+        self._attr_unique_id = f"orvibo_smart_control_cover_{self._device_id}"
+        self._attr_name = device.get("device_name", self._device_id)
+        self._category = classify_device(device)
+        if self._category == DeviceCategory.DREAM_CURTAIN:
+            self._attr_supported_features = self._attr_supported_features | CoverEntityFeature.SET_TILT_POSITION
+        # 判断是否是卷帘（type=35），使用 SHUTTER 图标
+        device_type_raw = device.get("device_type_raw", 0)
+        if device_type_raw == 35:
+            self._attr_device_class = CoverDeviceClass.SHUTTER
+            self._attr_icon = "mdi:roller-shade"
+        else:
+            self._attr_device_class = CoverDeviceClass.CURTAIN
+
+    @property
+    def current_cover_position(self) -> int:
+        state = self.coordinator.get_device_state(self._device_id)
+        return state.get("position", 0) if state else 0
+
+    @property
+    def is_closed(self) -> bool:
+        position = self.current_cover_position
+        return position == 0
+
+    @property
+    def available(self) -> bool:
+        state = self.coordinator.get_device_state(self._device_id)
+        return state.get("online", False) if state else False
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, self._device_id)},
+            "name": self._device.get("device_name", self._device_id),
+            "manufacturer": MANUFACTURER,
+            "model": self._device.get("model", "Orvibo Curtain"),
+            "sw_version": "1.0",
+        }
+
+    async def async_open_cover(self, **kwargs) -> None:
+        if self._category == DeviceCategory.DREAM_CURTAIN:
+            await self.coordinator.async_dream_curtain_action(self._device_id, "open")
+        else:
+            await self.coordinator.async_set_cover_position(self._device_id, 100)
+
+    async def async_close_cover(self, **kwargs) -> None:
+        if self._category == DeviceCategory.DREAM_CURTAIN:
+            await self.coordinator.async_dream_curtain_action(self._device_id, "close")
+        else:
+            await self.coordinator.async_set_cover_position(self._device_id, 0)
+
+    async def async_stop_cover(self, **kwargs) -> None:
+        await self.coordinator.async_stop_cover(self._device_id)
+
+    async def async_set_cover_position(self, **kwargs) -> None:
+        position = kwargs.get("position", 0)
+        await self.coordinator.async_set_cover_position(self._device_id, position)
+
+    @property
+    def current_cover_tilt_position(self) -> Optional[int]:
+        if self._category != DeviceCategory.DREAM_CURTAIN:
+            return None
+        state = self.coordinator.get_device_state(self._device_id) or {}
+        angle = state.get("angle")
+        return round(int(angle) * 100 / 180) if angle is not None else None
+
+    async def async_set_cover_tilt_position(self, **kwargs) -> None:
+        if self._category != DeviceCategory.DREAM_CURTAIN:
+            return
+        tilt = max(0, min(100, int(kwargs.get("tilt_position", 0))))
+        await self.coordinator.async_set_dream_curtain_angle(
+            self._device_id, round(tilt * 180 / 100)
+        )
+
+
+class OrviboClothesHorseMotor(CoordinatorEntity, CoverEntity):
+    """晾衣架电机 Cover 实体（升降）。"""
+    _attr_has_entity_name = True
+    _attr_device_class = CoverDeviceClass.AWNING
+    _attr_supported_features = (
+        CoverEntityFeature.OPEN
+        | CoverEntityFeature.CLOSE
+        | CoverEntityFeature.STOP
+        | CoverEntityFeature.SET_POSITION
+    )
+
+    def __init__(self, coordinator: OrviboSmartControlCoordinator, device: dict):
+        super().__init__(coordinator)
+        self._device = device
+        self._device_id = device["device_id"]
+        self._attr_unique_id = f"orvibo_smart_control_ch_motor_{self._device_id}"
+        self._attr_name = "晾杆"
+        self._attr_icon = "mdi:hanger"
+
+    @property
+    def current_cover_position(self) -> int:
+        state = self.coordinator.get_device_state(self._device_id)
+        # 晾衣架 position=0 顶部（收起），HA cover position=0 关闭
+        # 所以直接映射即可：顶部=0=关闭，底部=100=打开
+        return state.get("position", 0) if state else 0
+
+    @property
+    def is_closed(self) -> bool:
+        position = self.current_cover_position
+        return position == 0
+
+    @property
+    def available(self) -> bool:
+        state = self.coordinator.get_device_state(self._device_id)
+        return state.get("online", False) if state else False
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, self._device_id)},
+            "name": self._device.get("device_name", self._device_id),
+            "manufacturer": MANUFACTURER,
+            "model": self._device.get("model", "Orvibo Clothes Horse"),
+            "sw_version": "1.0",
+        }
+
+    async def async_open_cover(self, **kwargs) -> None:
+        """打开晾衣杆（下降到底部）。"""
+        await self.coordinator.async_clothes_horse_control(self._device_id, "motor", "down")
+
+    async def async_close_cover(self, **kwargs) -> None:
+        """关闭晾衣杆（上升到顶部）。"""
+        await self.coordinator.async_clothes_horse_control(self._device_id, "motor", "up")
+
+    async def async_stop_cover(self, **kwargs) -> None:
+        """停止电机。"""
+        await self.coordinator.async_clothes_horse_control(self._device_id, "motor", "stop")
+
+    async def async_set_cover_position(self, **kwargs) -> None:
+        """设置位置。晾衣架不支持精确定位，转换为升降操作。"""
+        position = kwargs.get("position", 0)
+        current = self.current_cover_position
+        if position == current:
+            return
+        if position > current:
+            # HA position 变大 = 更打开 = 晾衣架下降
+            await self.coordinator.async_clothes_horse_control(self._device_id, "motor", "down")
+        else:
+            # HA position 变小 = 更关闭 = 晾衣架上升
+            await self.coordinator.async_clothes_horse_control(self._device_id, "motor", "up")

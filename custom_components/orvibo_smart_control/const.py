@@ -1,0 +1,127 @@
+import os
+from datetime import timedelta
+
+_CERTS_DIR = os.path.join(os.path.dirname(__file__), "certs")
+
+DEFAULT_POLL_INTERVAL_MINUTES = 30
+MIN_POLL_INTERVAL_MINUTES = 5
+MAX_POLL_INTERVAL_MINUTES = 1440
+UPDATE_INTERVAL = timedelta(minutes=DEFAULT_POLL_INTERVAL_MINUTES)
+SSL_MAX_RECONNECT_ATTEMPTS = 3
+
+CMD_HELLO = 0
+CMD_LOGIN = 2
+CMD_CONTROL = 15
+CMD_STATE_UPDATE = 42
+CMD_HEARTBEAT = 32
+CMD_HANDSHAKE = 6
+CMD_GET_FAMILY = 201
+CMD_GET_DEVICE_LIST = 263
+CMD_CLOTHES_HORSE_CONTROL = 98
+CMD_CLOTHES_HORSE_STATE = 99
+CMD_CLOTHES_HORSE_QUERY = 100
+CMD_COS_AUTH = 313  # Skill.GetCOSAuthorization：换取门锁媒体（图片/视频）COS 凭证
+CMD_TEMP_PASSWORD = 246  # 下发临时密码（type/effectTime/number/phone）
+CMD_DELETE_AUTHORIZATION = 247  # 删除授权（uid/deviceId/authorizedId）
+
+SOFTWARE_NAME = "ZhiJia365"
+SOFTWARE_VERSION = "50103309"
+SYS_VERSION = "Android14_34"
+HARDWARE_VERSION = "Google Pixel 8"
+LANGUAGE = "zh"
+PHONE_NAME = "Pixel 8"
+SOFTWARE_VER = "5.1.3.309"
+DEBUG_INFO = "Android_ZhiJia365_34_5.1.3.309"
+
+DOMAIN = "orvibo_smart_control"
+MANUFACTURER = "ORVIBO"
+
+# HA 事件总线：门锁状态/事件（解锁、门铃、锁状态、门状态）
+LOCK_EVENT = "orvibo_smart_control_lock_event"
+TEMP_PASSWORD_EVENT = "orvibo_smart_control_temp_password_event"
+
+HTTPS_HOST = "china.orvibo.com"
+# 国际区集群（Orvibo Home 海外用户，数据与中国区独立分区）
+HTTPS_HOST_GLOBAL = "homemate.orvibo.com"
+SSL_HOST_GLOBAL = "homemate.orvibo.com"
+HTTP_HEADERS = {
+    "Content-Type": "application/json; charset=utf-8",
+    "User-Agent": "okhttp/3.12.8",
+}
+SIGN_KEY = "nQ45RjPtOws96jmH"
+
+SSL_HOST = "china.orvibo.com"
+SSL_PORT = 10002
+CLIENT_CERT = os.path.join(_CERTS_DIR, "client_cert.pem")
+CLIENT_KEY = os.path.join(_CERTS_DIR, "client_key.pem")
+SERVER_CA = os.path.join(_CERTS_DIR, "server_ca.pem")
+DEFAULT_KEY = "khggd54865SNJHGF"
+MAGIC = bytes([0x68, 0x64])
+ID_UNSET = b'\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20'
+
+DEVICE_TYPE_COVER = "cover"
+DEVICE_TYPE_SWITCH = "switch"
+DEVICE_TYPE_LIGHT = "light"
+DEVICE_TYPE_CLOTHES_HORSE = "clothes_horse"
+DEVICE_TYPE_SENSOR = "sensor"
+DEVICE_TYPE_CLIMATE = "climate"
+DEVICE_TYPE_FAN = "fan"
+
+# HA 平台路由映射（device_type_raw → HA 平台字符串）
+# 注意：隐藏类别（114/135/136/137/143/518/14/150/511）不在本表，由
+# device_types.HIDDEN_CATEGORIES 在 coordinator 层过滤。
+DEVICE_TYPE_MAP = {
+    1: DEVICE_TYPE_LIGHT,           # SIMPLE_ZIGBEE_LIGHT
+    34: DEVICE_TYPE_COVER,          # ZIGBEE_CURTAIN
+    35: DEVICE_TYPE_COVER,          # ZIGBEE_ROLLING_SHUTTER
+    36: DEVICE_TYPE_CLIMATE,        # FAN_COIL_AC
+    38: DEVICE_TYPE_LIGHT,          # DIM_COLOR_LIGHT
+    52: DEVICE_TYPE_CLOTHES_HORSE,  # CLOTHES_HORSE
+    501: DEVICE_TYPE_LIGHT,         # MONO_LIGHT
+    503: DEVICE_TYPE_LIGHT,         # CCT_LIGHT
+    26: DEVICE_TYPE_SENSOR,         # MOTION_SENSOR
+    27: DEVICE_TYPE_SENSOR,         # SMOKE_SENSOR
+    25: DEVICE_TYPE_SENSOR,         # GAS_SENSOR
+    56: DEVICE_TYPE_SENSOR,         # EMERGENCY_BUTTON
+    54: DEVICE_TYPE_SENSOR,         # WATER_LEAK_SENSOR
+    300: DEVICE_TYPE_SENSOR,        # TEMP_HUMIDITY_SENSOR / DOOR_LOCK
+    522: DEVICE_TYPE_SENSOR,        # DOOR_LOCK (V5 Eyes)
+    502: DEVICE_TYPE_LIGHT,         # DIMMABLE_LIGHT
+    506: DEVICE_TYPE_COVER,         # DREAM_CURTAIN (subDeviceType=408)
+    46: DEVICE_TYPE_SENSOR,         # DOOR_WINDOW_SENSOR
+    516: DEVICE_TYPE_FAN,           # VENTILATION_SYSTEM 新风系统
+    22: DEVICE_TYPE_SENSOR,         # TEMP_HUMIDITY_SENSOR
+    23: DEVICE_TYPE_SENSOR,         # TEMP_HUMIDITY_SENSOR
+    81: DEVICE_TYPE_CLIMATE,        # FAN_COIL_AC (同 type=36)
+    112: DEVICE_TYPE_CLIMATE,       # 旧协议地暖控制面板（orb_floorheat）
+    43: DEVICE_TYPE_SWITCH,         # COCO智能插线板
+}
+
+CLASS_ID_MAP = {
+    426: DEVICE_TYPE_LIGHT,
+    429: DEVICE_TYPE_LIGHT,
+    436: DEVICE_TYPE_LIGHT,         # CCT_LIGHT_STRIP
+    1114: DEVICE_TYPE_FAN,          # VENTILATION_SYSTEM 新风系统
+}
+
+CONF_USERNAME = "username"
+CONF_PASSWORD = "password"
+CONF_PASSWORD_HASH = "password_hash"
+CONF_CLOUD_REGION = "cloud_region"
+CONF_FAMILY_ID = "family_id"
+CONF_LOCK_USER_NAMES = "lock_user_names"  # {user_id: 名称}，持久化于 entry.options
+CONF_TRANSPORT_MODE = "transport_mode"  # auto / lan_only / cloud_only
+CONF_USE_INDEPENDENT_LAN_CREDENTIALS = "use_independent_lan_credentials"
+CONF_LAN_USERNAME = "lan_username"
+CONF_LAN_PASSWORD = "lan_password"
+CONF_LAN_PASSWORD_HASH = "lan_password_hash"
+CONF_POLL_INTERVAL_MINUTES = "poll_interval_minutes"
+CONF_AVAILABILITY_NOTIFICATIONS = "availability_notifications"
+CONF_NOTIFY_ONLINE = "notify_online"
+CONF_NOTIFY_OFFLINE = "notify_offline"
+CONF_NOTIFY_SERVICE = "notify_service"
+CONF_UPDATE_CHECK_ENABLED = "update_check_enabled"
+CONF_UPDATE_CHECK_INTERVAL_HOURS = "update_check_interval_hours"
+DEFAULT_UPDATE_CHECK_INTERVAL_HOURS = 24
+MIN_UPDATE_CHECK_INTERVAL_HOURS = 6
+MAX_UPDATE_CHECK_INTERVAL_HOURS = 168

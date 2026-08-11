@@ -1,0 +1,8 @@
+{
+  "name": "ORVIBO Smart Control",
+  "render_readme": true,
+  "homeassistant": "2024.1.0",
+  "content_in_root": false,
+  "zip_release": true,
+  "filename": "orvibo-smart-control.zip"
+}

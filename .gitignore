@@ -1,0 +1,19 @@
+# HA Orvibo Integration - .gitignore
+
+# CodeGraph generated index
+.codegraph/
+
+# Log files
+*.log
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+
+# Temporary files
+*.tmp
+*.bak
+*.swp

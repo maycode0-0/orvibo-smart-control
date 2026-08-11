@@ -1,0 +1,176 @@
+name: ORVIBO Smart Control validation
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: ORVIBO Smart Control tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install "aiohttp>=3.9.0" "cryptography>=41.0.0" "voluptuous>=0.13.1"
+      - name: Run tests
+        run: python -m unittest discover -s tests -v
+
+  hacs:
+    name: HACS validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  hassfest:
+    name: Home Assistant hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  auto-version-release:
+    name: Release when manifest version changes
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [unit-tests, hacs, hassfest]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect manifest version change
+        id: version
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          manifest='custom_components/orvibo_smart_control/manifest.json'
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            previous_version=''
+          else
+            previous_version="$(git show "$BEFORE_SHA:$manifest" 2>/dev/null | python -c 'import json,sys; print(json.load(sys.stdin)["version"])' || true)"
+          fi
+
+          version="$(python -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' "$manifest")"
+          if [[ ! "$version" =~ ^0\.[0-9]+\.[0-9]+$ ]]; then
+            echo "manifest version must be a stable 0.x.y version: $version" >&2
+            exit 1
+          fi
+          if [[ "$previous_version" == "$version" ]]; then
+            changed=false
+          else
+            changed=true
+          fi
+
+          echo "previous_version=$previous_version"
+          echo "current_version=$version"
+          echo "changed=$changed"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$changed" >> "$GITHUB_OUTPUT"
+
+      - name: Build HACS ZIP
+        if: steps.version.outputs.publish == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release-package
+          cp -R custom_components/orvibo_smart_control release-package/orvibo_smart_control
+          find release-package/orvibo_smart_control -type d -name __pycache__ -prune -exec rm -rf {} +
+          find release-package/orvibo_smart_control -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+          (cd release-package/orvibo_smart_control && zip -r ../../orvibo-smart-control.zip .)
+
+      - name: Create tag and GitHub Release
+        if: steps.version.outputs.publish == 'true'
+        uses: actions/github-script@v7
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        with:
+          script: |
+            const fs = require('fs');
+            const tag = process.env.RELEASE_TAG;
+            const version = process.env.RELEASE_VERSION;
+            const sha = context.sha;
+
+            let ref = await github.rest.git.getRef({
+              ...context.repo,
+              ref: `tags/${tag}`,
+            }).catch(error => error.status === 404 ? null : Promise.reject(error));
+
+            if (ref) {
+              let tagSha = ref.data.object.sha;
+              if (ref.data.object.type === 'tag') {
+                const tagObject = await github.rest.git.getTag({
+                  ...context.repo,
+                  tag_sha: tagSha,
+                });
+                tagSha = tagObject.data.object.sha;
+              }
+              if (tagSha !== sha) {
+                core.setFailed(`Tag ${tag} already points to ${tagSha}, expected ${sha}`);
+                return;
+              }
+            } else {
+              await github.rest.git.createRef({
+                ...context.repo,
+                ref: `refs/tags/${tag}`,
+                sha,
+              });
+              core.notice(`Created tag ${tag}`);
+            }
+
+            let release = await github.rest.repos.getReleaseByTag({
+              ...context.repo,
+              tag,
+            }).catch(error => error.status === 404 ? null : Promise.reject(error));
+
+            if (!release) {
+              release = await github.rest.repos.createRelease({
+                ...context.repo,
+                tag_name: tag,
+                target_commitish: sha,
+                name: tag,
+                generate_release_notes: true,
+                prerelease: false,
+              });
+              core.notice(`Created GitHub Release ${tag} for version ${version}`);
+            }
+
+            const assetPath = 'orvibo-smart-control.zip';
+            const existingAsset = release.data.assets.find(asset => asset.name === assetPath);
+            if (existingAsset && existingAsset.state === 'uploaded' && existingAsset.size > 0) {
+              core.notice(`Release asset ${assetPath} already exists`);
+              return;
+            }
+            if (existingAsset) {
+              await github.rest.repos.deleteReleaseAsset({
+                ...context.repo,
+                asset_id: existingAsset.id,
+              });
+            }
+
+            const data = fs.readFileSync(assetPath);
+            await github.rest.repos.uploadReleaseAsset({
+              ...context.repo,
+              release_id: release.data.id,
+              name: assetPath,
+              data,
+              headers: {
+                'content-type': 'application/zip',
+                'content-length': data.length,
+              },
+            });

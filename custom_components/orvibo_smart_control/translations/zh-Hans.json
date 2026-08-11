@@ -1,0 +1,243 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "ORVIBO Smart Control 登录",
+                "description": "请输入您的智家365账号（手机号或邮箱）和密码",
+                "data": {
+                    "username": "手机号或邮箱",
+                    "password": "密码"
+                }
+            },
+            "select_family": {
+                "title": "选择家庭",
+                "description": "您的账号下存在多个家庭，请选择一个家庭添加进Home Assistant",
+                "data": {
+                    "family_id": "家庭"
+                }
+            },
+            "reauth_confirm": {
+                "title": "重新认证",
+                "description": "为 {username} 更新密码",
+                "data": {
+                    "password": "密码"
+                }
+            },
+            "devices": {
+                "title": "选择设备",
+                "description": "设备按类型分组。保持分类的全选开关可添加该类全部设备；关闭后展开列表即可逐台勾选。",
+                "data": {
+                    "device_group_lights_all": "全选灯具",
+                    "device_group_lights": "灯具（展开后逐台选择）",
+                    "device_group_switches_all": "全选开关",
+                    "device_group_switches": "开关（展开后逐台选择）",
+                    "device_group_curtains_all": "全选窗帘",
+                    "device_group_curtains": "窗帘（展开后逐台选择）",
+                    "device_group_clothes_horse_all": "全选晾衣机",
+                    "device_group_clothes_horse": "晾衣机（展开后逐台选择）",
+                    "device_group_climate_all": "全选暖通设备",
+                    "device_group_climate": "暖通（展开后逐台选择）",
+                    "device_group_ventilation_all": "全选新风设备",
+                    "device_group_ventilation": "新风（展开后逐台选择）",
+                    "device_group_sensors_all": "全选传感器",
+                    "device_group_sensors": "传感器（展开后逐台选择）",
+                    "device_group_locks_all": "全选门锁",
+                    "device_group_locks": "门锁（展开后逐台选择）",
+                    "device_group_cameras_all": "全选摄像头",
+                    "device_group_cameras": "摄像头（展开后逐台选择）",
+                    "device_group_other_all": "全选其他设备",
+                    "device_group_other": "其他设备（展开后逐台选择）",
+                    "selected_device_ids": "设备"
+                }
+            },
+            "area": {
+                "title": "指定设备区域",
+                "description": "为 {device} 选择区域（第 {position}/{total} 台）。智家365中的房间为 {room}。留空不设区域。",
+                "data": {
+                    "area_id": "区域"
+                }
+            }
+        },
+        "error": {
+            "auth_failed": "登录失败，请检查账号和密码",
+            "empty_username_or_password": "账号和密码不能为空",
+            "invalid_username": "手机号或邮箱格式不正确",
+            "no_devices_selected": "请至少勾选一台设备",
+            "no_devices": "该家庭中没有发现设备",
+            "cannot_connect": "无法连接欧瑞博云"
+        },
+        "abort": {
+            "already_configured": "该账号已配置",
+            "reauth_entry_missing": "该配置项已不存在"
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "ORVIBO Smart Control 配置",
+                "menu_options": {
+                    "transport_mode": "配置 LAN / 云端传输模式",
+                    "lan_credentials": "配置独立 MixPad LAN 凭据",
+                    "devices": "继续添加或移除设备",
+                    "reauth": "更新欧瑞博账号密码",
+                    "sync_device_names": "同步云端设备名称",
+                    "clear_local_data": "清理本地配置文件",
+                    "polling": "配置轮询间隔时间",
+                    "availability_notifications": "配置设备上下线通知",
+                    "update_check": "配置集成更新检查",
+                    "lock_users": "锁用户映射"
+                }
+            },
+            "transport_mode": {
+                "title": "传输模式",
+                "description": "LAN 与云端结合（默认）：LAN 优先并自动回退云端；纯 LAN：首次发现后不连接云端实时通道，也不周期轮询云端；纯云端：不连接 MixPad。",
+                "data": {
+                    "transport_mode": "传输模式"
+                }
+            },
+            "lan_credentials": {
+                "title": "独立 MixPad LAN 凭据",
+                "description": "仅当 MixPad 使用不同账号时启用。密码只保存协议摘要；已配置后留空密码可保留原值。",
+                "data": {
+                    "use_independent_lan_credentials": "使用独立的 MixPad LAN 凭据",
+                    "lan_username": "MixPad 用户名",
+                    "lan_password": "MixPad 密码"
+                }
+            },
+            "sync_device_names": {
+                "title": "同步云端设备名称",
+                "description": "从欧瑞博云端更新集成提供的 Home Assistant 设备名称。用户手动设置的名称不会被覆盖。",
+                "data": {
+                    "confirm": "确认同步"
+                }
+            },
+            "clear_local_data": {
+                "title": "清理本地配置文件",
+                "description": "只删除本集成的本地门锁媒体目录，并可重置通用选项。账号、家庭、已选设备、实体注册和 Home Assistant .storage 均会保留。",
+                "data": {
+                    "clear_media": "删除本地门锁媒体",
+                    "reset_general_options": "重置传输、LAN 凭据、轮询、通知和更新选项",
+                    "confirm": "我已了解并确认执行"
+                }
+            },
+            "polling": {
+                "title": "云端轮询间隔",
+                "description": "设置云端快照兜底轮询间隔（分钟）。纯 LAN 模式不会执行周期云轮询。",
+                "data": {
+                    "poll_interval_minutes": "轮询间隔"
+                }
+            },
+            "availability_notifications": {
+                "title": "设备上下线通知",
+                "description": "只在已选设备的在线状态真实变化后通知。通知服务留空时使用 Home Assistant 持久通知。",
+                "data": {
+                    "availability_notifications": "启用上下线通知",
+                    "notify_online": "设备上线时通知",
+                    "notify_offline": "设备离线时通知",
+                    "notify_service": "通知服务（例如 notify.mobile_app_phone）"
+                }
+            },
+            "update_check": {
+                "title": "集成更新检查",
+                "description": "按设定周期检查 GitHub 最新稳定 Release；发现新版本时创建一条持久通知。",
+                "data": {
+                    "update_check_enabled": "启用更新检查",
+                    "update_check_interval_hours": "检查间隔"
+                }
+            },
+            "reauth": {
+                "title": "重新登录",
+                "description": "为 {username} 输入新密码。成功后会保留当前家庭、设备、实体和区域设置。",
+                "data": {
+                    "password": "新密码"
+                }
+            },
+            "lock_users": {
+                "title": "锁用户映射",
+                "description": "每行一个：用户ID=名称（例如 1=张三，2=李四）。用于开锁事件显示\"谁开的门\"。",
+                "data": {
+                    "lock_user_names": "用户映射"
+                }
+            },
+            "devices": {
+                "title": "选择设备",
+                "description": "设备按类型分组。保持分类的全选开关可添加该类全部设备；关闭后展开列表即可逐台勾选。",
+                "data": {
+                    "device_group_lights_all": "全选灯具",
+                    "device_group_lights": "灯具（展开后逐台选择）",
+                    "device_group_switches_all": "全选开关",
+                    "device_group_switches": "开关（展开后逐台选择）",
+                    "device_group_curtains_all": "全选窗帘",
+                    "device_group_curtains": "窗帘（展开后逐台选择）",
+                    "device_group_clothes_horse_all": "全选晾衣机",
+                    "device_group_clothes_horse": "晾衣机（展开后逐台选择）",
+                    "device_group_climate_all": "全选暖通设备",
+                    "device_group_climate": "暖通（展开后逐台选择）",
+                    "device_group_ventilation_all": "全选新风设备",
+                    "device_group_ventilation": "新风（展开后逐台选择）",
+                    "device_group_sensors_all": "全选传感器",
+                    "device_group_sensors": "传感器（展开后逐台选择）",
+                    "device_group_locks_all": "全选门锁",
+                    "device_group_locks": "门锁（展开后逐台选择）",
+                    "device_group_cameras_all": "全选摄像头",
+                    "device_group_cameras": "摄像头（展开后逐台选择）",
+                    "device_group_other_all": "全选其他设备",
+                    "device_group_other": "其他设备（展开后逐台选择）",
+                    "selected_device_ids": "设备"
+                }
+            },
+            "area": {
+                "title": "指定设备区域",
+                "description": "为 {device} 选择区域（第 {position}/{total} 台）。欧瑞博中的房间为 {room}。",
+                "data": {
+                    "area_id": "区域"
+                }
+            }
+        },
+        "error": {
+            "auth_failed": "登录失败，请检查新密码",
+            "empty_username_or_password": "密码不能为空",
+            "no_devices_selected": "请至少勾选一台设备",
+            "cannot_connect": "无法连接欧瑞博云",
+            "no_devices": "该家庭中没有发现设备",
+            "lan_credentials_required": "请输入独立的 MixPad 用户名和密码",
+            "invalid_service": "通知服务必须使用 domain.service 格式"
+        },
+        "abort": {
+            "reauth_successful": "重新登录成功，现有设备和实体设置已保留",
+            "device_names_synced": "云端设备名称同步完成，共更新 {count} 个 Home Assistant 设备",
+            "local_data_cleared": "本地数据已清理，共删除 {count} 个文件"
+        }
+    },
+    "selector": {
+        "transport_mode": {
+            "options": {
+                "auto": "LAN 与云端结合（默认，LAN 优先并自动回退）",
+                "lan_only": "纯 LAN（运行时状态与控制仅使用 MixPad）",
+                "cloud_only": "纯云端（不连接 MixPad LAN）"
+            }
+        }
+    },
+    "entity": {
+        "sensor": {
+            "door_lock_state": {
+                "name": "锁状态",
+                "state": {
+                    "locked": "已上锁",
+                    "unlocked": "未上锁",
+                    "inside_locked": "门内已反锁",
+                    "abnormal": "异常"
+                }
+            },
+            "transport_path": {
+                "name": "传输通道",
+                "state": {
+                    "lan": "LAN",
+                    "cloud": "云端",
+                    "lan_cloud": "LAN 优先，云端回退",
+                    "unavailable": "当前模式不可用"
+                }
+            }
+        }
+    }
+}

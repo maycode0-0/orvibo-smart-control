@@ -1,0 +1,243 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "ORVIBO Smart Control - HomeMate Login",
+                "description": "Enter your HomeMate account (phone number or email) and password",
+                "data": {
+                    "username": "Phone / Email",
+                    "password": "Password"
+                }
+            },
+            "select_family": {
+                "title": "Select Family",
+                "description": "Multiple families found, select one to manage",
+                "data": {
+                    "family_id": "Family"
+                }
+            },
+            "reauth_confirm": {
+                "title": "Re-authenticate",
+                "description": "Update the password for {username}",
+                "data": {
+                    "password": "Password"
+                }
+            },
+            "devices": {
+                "title": "Select Devices",
+                "description": "Devices are grouped by type. Keep a group's select-all switch on to add every device in it, or turn it off and expand the list to choose devices individually.",
+                "data": {
+                    "device_group_lights_all": "Select all lights",
+                    "device_group_lights": "Lights (expand to choose individually)",
+                    "device_group_switches_all": "Select all switches",
+                    "device_group_switches": "Switches (expand to choose individually)",
+                    "device_group_curtains_all": "Select all curtains",
+                    "device_group_curtains": "Curtains (expand to choose individually)",
+                    "device_group_clothes_horse_all": "Select all clothes dryers",
+                    "device_group_clothes_horse": "Clothes dryers (expand to choose individually)",
+                    "device_group_climate_all": "Select all climate devices",
+                    "device_group_climate": "Climate (expand to choose individually)",
+                    "device_group_ventilation_all": "Select all ventilation devices",
+                    "device_group_ventilation": "Ventilation (expand to choose individually)",
+                    "device_group_sensors_all": "Select all sensors",
+                    "device_group_sensors": "Sensors (expand to choose individually)",
+                    "device_group_locks_all": "Select all locks",
+                    "device_group_locks": "Locks (expand to choose individually)",
+                    "device_group_cameras_all": "Select all cameras",
+                    "device_group_cameras": "Cameras (expand to choose individually)",
+                    "device_group_other_all": "Select all other devices",
+                    "device_group_other": "Other devices (expand to choose individually)",
+                    "selected_device_ids": "Devices"
+                }
+            },
+            "area": {
+                "title": "Assign Area",
+                "description": "Select HA area for {device} ({position}/{total}). The room from HomeMate is {room}. Leave empty for no area.",
+                "data": {
+                    "area_id": "Area"
+                }
+            }
+        },
+        "error": {
+            "auth_failed": "Login failed, check your credentials",
+            "empty_username_or_password": "Username and password are required",
+            "invalid_username": "Invalid phone number or email format",
+            "no_devices_selected": "Select at least one device",
+            "no_devices": "No devices found in this family",
+            "cannot_connect": "Cannot connect to ORVIBO cloud"
+        },
+        "abort": {
+            "already_configured": "This account is already configured",
+            "reauth_entry_missing": "The configuration entry no longer exists"
+        }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "title": "ORVIBO Smart Control options",
+                "menu_options": {
+                    "transport_mode": "Configure LAN / cloud mode",
+                    "lan_credentials": "Configure independent MixPad LAN credentials",
+                    "devices": "Add or remove devices",
+                    "reauth": "Update ORVIBO account password",
+                    "sync_device_names": "Sync cloud device names",
+                    "clear_local_data": "Clear local data",
+                    "polling": "Configure polling interval",
+                    "availability_notifications": "Configure device availability notifications",
+                    "update_check": "Configure integration update check",
+                    "lock_users": "Lock user mapping"
+                }
+            },
+            "transport_mode": {
+                "title": "Transport mode",
+                "description": "Combined (default): LAN-first with cloud fallback. LAN only: no cloud realtime connection or periodic cloud polling after initial discovery. Cloud only: do not connect to MixPad.",
+                "data": {
+                    "transport_mode": "Transport mode"
+                }
+            },
+            "lan_credentials": {
+                "title": "Independent MixPad LAN credentials",
+                "description": "Enable only when MixPad uses another account. The password is stored as a protocol digest; leave it blank to keep an existing value.",
+                "data": {
+                    "use_independent_lan_credentials": "Use independent MixPad LAN credentials",
+                    "lan_username": "MixPad username",
+                    "lan_password": "MixPad password"
+                }
+            },
+            "sync_device_names": {
+                "title": "Sync cloud device names",
+                "description": "Update integration-provided Home Assistant device names from ORVIBO cloud. User-defined names are preserved.",
+                "data": {
+                    "confirm": "Confirm synchronization"
+                }
+            },
+            "clear_local_data": {
+                "title": "Clear local data",
+                "description": "Deletes only this integration's local lock media directory and optionally resets general options. Account, family, selected devices, entity registry, and Home Assistant .storage are preserved.",
+                "data": {
+                    "clear_media": "Delete local lock media",
+                    "reset_general_options": "Reset transport, LAN credentials, polling, notification, and update options",
+                    "confirm": "I understand and confirm"
+                }
+            },
+            "polling": {
+                "title": "Cloud polling interval",
+                "description": "Fallback cloud snapshot polling interval in minutes. LAN-only mode does not perform periodic cloud polling.",
+                "data": {
+                    "poll_interval_minutes": "Polling interval"
+                }
+            },
+            "availability_notifications": {
+                "title": "Device availability notifications",
+                "description": "Notify only after a selected device actually changes online state. Leave the service blank to use persistent notifications.",
+                "data": {
+                    "availability_notifications": "Enable notifications",
+                    "notify_online": "Notify when online",
+                    "notify_offline": "Notify when offline",
+                    "notify_service": "Notification service (for example notify.mobile_app_phone)"
+                }
+            },
+            "update_check": {
+                "title": "Integration update check",
+                "description": "Periodically check the latest stable GitHub release and create one persistent notification when an update is available.",
+                "data": {
+                    "update_check_enabled": "Enable update check",
+                    "update_check_interval_hours": "Check interval"
+                }
+            },
+            "reauth": {
+                "title": "Sign in again",
+                "description": "Enter the new password for {username}. Your family, devices, entities, and area assignments will be preserved.",
+                "data": {
+                    "password": "New password"
+                }
+            },
+            "lock_users": {
+                "title": "Lock user mapping",
+                "description": "One entry per line: userID=name (e.g. 1=John, 2=Jane). Used to show who opened the door.",
+                "data": {
+                    "lock_user_names": "User mapping"
+                }
+            },
+            "devices": {
+                "title": "Select Devices",
+                "description": "Devices are grouped by type. Keep a group's select-all switch on to add every device in it, or turn it off and expand the list to choose devices individually.",
+                "data": {
+                    "device_group_lights_all": "Select all lights",
+                    "device_group_lights": "Lights (expand to choose individually)",
+                    "device_group_switches_all": "Select all switches",
+                    "device_group_switches": "Switches (expand to choose individually)",
+                    "device_group_curtains_all": "Select all curtains",
+                    "device_group_curtains": "Curtains (expand to choose individually)",
+                    "device_group_clothes_horse_all": "Select all clothes dryers",
+                    "device_group_clothes_horse": "Clothes dryers (expand to choose individually)",
+                    "device_group_climate_all": "Select all climate devices",
+                    "device_group_climate": "Climate (expand to choose individually)",
+                    "device_group_ventilation_all": "Select all ventilation devices",
+                    "device_group_ventilation": "Ventilation (expand to choose individually)",
+                    "device_group_sensors_all": "Select all sensors",
+                    "device_group_sensors": "Sensors (expand to choose individually)",
+                    "device_group_locks_all": "Select all locks",
+                    "device_group_locks": "Locks (expand to choose individually)",
+                    "device_group_cameras_all": "Select all cameras",
+                    "device_group_cameras": "Cameras (expand to choose individually)",
+                    "device_group_other_all": "Select all other devices",
+                    "device_group_other": "Other devices (expand to choose individually)",
+                    "selected_device_ids": "Devices"
+                }
+            },
+            "area": {
+                "title": "Assign Area",
+                "description": "Select HA area for {device} ({position}/{total}). ORVIBO room is {room}.",
+                "data": {
+                    "area_id": "Area"
+                }
+            }
+        },
+        "error": {
+            "auth_failed": "Login failed, check the new password",
+            "empty_username_or_password": "Password is required",
+            "no_devices_selected": "Select at least one device",
+            "cannot_connect": "Cannot connect to ORVIBO cloud",
+            "no_devices": "No devices found in this family",
+            "lan_credentials_required": "Enter the independent MixPad username and password",
+            "invalid_service": "Use a service in domain.service format"
+        },
+        "abort": {
+            "reauth_successful": "Signed in successfully; existing device and entity settings were preserved",
+            "device_names_synced": "Cloud device names synchronized. Updated {count} Home Assistant devices",
+            "local_data_cleared": "Local integration data cleared. Removed {count} files"
+        }
+    },
+    "selector": {
+        "transport_mode": {
+            "options": {
+                "auto": "LAN and cloud (default, LAN first with cloud fallback)",
+                "lan_only": "LAN only (runtime state and control use MixPad only)",
+                "cloud_only": "Cloud only (do not connect to MixPad LAN)"
+            }
+        }
+    },
+    "entity": {
+        "sensor": {
+            "door_lock_state": {
+                "name": "Lock state",
+                "state": {
+                    "locked": "Locked",
+                    "unlocked": "Unlocked",
+                    "inside_locked": "Inside locked",
+                    "abnormal": "Abnormal"
+                }
+            },
+            "transport_path": {
+                "name": "Transport path",
+                "state": {
+                    "lan": "LAN",
+                    "cloud": "Cloud",
+                    "lan_cloud": "LAN first, cloud fallback",
+                    "unavailable": "Unavailable in current mode"
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="ORVIBO Smart Control">
+  <rect x="16" y="16" width="224" height="224" rx="48" fill="#17212b"/>
+  <g fill="none" stroke="#22c98b" stroke-linecap="round" stroke-width="10">
+    <path d="M36 101h48"/>
+    <path d="M36 128h48"/>
+    <path d="M36 155h48"/>
+  </g>
+  <g fill="#22c98b">
+    <circle cx="36" cy="101" r="7"/>
+    <circle cx="36" cy="128" r="7"/>
+    <circle cx="36" cy="155" r="7"/>
+  </g>
+  <rect x="82" y="72" width="94" height="112" rx="20" fill="#f8fafc"/>
+  <rect x="98" y="91" width="62" height="48" rx="9" fill="#273846"/>
+  <circle cx="113" cy="158" r="7" fill="#22c98b"/>
+  <circle cx="145" cy="158" r="7" fill="#3b82f6"/>
+  <path d="M176 128h18" fill="none" stroke="#3b82f6" stroke-linecap="round" stroke-width="10"/>
+  <path d="M194 142h31c8 0 15-7 15-15s-6-14-14-15c-2-12-12-21-25-21-11 0-21 7-24 18-9 1-16 8-16 17 0 9 7 16 16 16h17z" fill="#3b82f6"/>
+</svg>
