@@ -138,8 +138,17 @@ def _load_config_flow():
         ),
         f"{package_name}.selection": _module(
             f"{package_name}.selection",
+            CONF_HIDDEN_DEVICE_NAME_PATTERNS="hidden_device_name_patterns",
             CONF_SELECTED_DEVICE_IDS="selected_device_ids",
+            parse_hidden_device_name_patterns=lambda value: list(value)
+            if isinstance(value, (list, tuple, set))
+            else [
+                line.strip()
+                for line in str(value or "").splitlines()
+                if line.strip()
+            ],
             selected_device_ids=lambda options, devices: set(devices),
+            visible_devices_by_name=lambda devices, patterns: list(devices),
         ),
         f"{package_name}.protocol": _module(
             f"{package_name}.protocol",
@@ -189,6 +198,7 @@ class TestOptionsReauth(unittest.IsolatedAsyncioTestCase):
                 "transport_mode",
                 "lan_credentials",
                 "devices",
+                "device_name_filter",
                 "reauth",
                 "sync_device_names",
                 "clear_local_data",
@@ -198,6 +208,32 @@ class TestOptionsReauth(unittest.IsolatedAsyncioTestCase):
                 "lock_users",
             ],
         )
+
+    async def test_device_name_filter_saves_rules_and_preserves_options(self):
+        flow, _ = self._flow()
+
+        result = await flow.async_step_device_name_filter(
+            {"hidden_device_name_patterns": "测试\n*控制器*"}
+        )
+
+        self.assertEqual(result["type"], "create_entry")
+        self.assertEqual(
+            result["data"]["hidden_device_name_patterns"],
+            ["测试", "*控制器*"],
+        )
+        self.assertEqual(result["data"]["selected_device_ids"], ["device-1"])
+
+    async def test_device_name_filter_can_be_cleared(self):
+        flow, entry = self._flow()
+        entry.options["hidden_device_name_patterns"] = ["测试"]
+
+        result = await flow.async_step_device_name_filter(
+            {"hidden_device_name_patterns": ""}
+        )
+
+        self.assertEqual(result["type"], "create_entry")
+        self.assertNotIn("hidden_device_name_patterns", result["data"])
+        self.assertEqual(result["data"]["selected_device_ids"], ["device-1"])
 
     async def test_transport_mode_accepts_lan_only(self):
         flow, _ = self._flow()

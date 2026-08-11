@@ -78,6 +78,26 @@ class TestGroupedDeviceSelection(unittest.TestCase):
         )
         self.assertEqual(result, ["light-1", "light-2", "light-3"])
 
+    def test_select_all_option_selects_every_device_in_category(self):
+        light_group = next(
+            group for group in device_selection.device_selection_groups(DEVICES)
+            if group.key == "lights"
+        )
+        result = device_selection.merge_grouped_selection(
+            {light_group.device_field: [light_group.all_value]}, DEVICES
+        )
+        self.assertEqual(result, ["light-1", "light-2", "light-3"])
+
+    def test_legacy_all_checkbox_field_remains_supported(self):
+        light_group = next(
+            group for group in device_selection.device_selection_groups(DEVICES)
+            if group.key == "lights"
+        )
+        result = device_selection.merge_grouped_selection(
+            {light_group.legacy_all_field: True}, DEVICES
+        )
+        self.assertEqual(result, ["light-1", "light-2", "light-3"])
+
     def test_individual_selection_can_mix_categories(self):
         groups = device_selection.device_selection_groups(DEVICES)
         lights = next(group for group in groups if group.key == "lights")

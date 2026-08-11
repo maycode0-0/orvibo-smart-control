@@ -53,7 +53,13 @@ from .device_types import (
 from .https_client import HttpsClient
 from .lock_status import format_lock_user_names, parse_lock_user_names
 from .protocol import password_hash
-from .selection import CONF_SELECTED_DEVICE_IDS, selected_device_ids
+from .selection import (
+    CONF_HIDDEN_DEVICE_NAME_PATTERNS,
+    CONF_SELECTED_DEVICE_IDS,
+    parse_hidden_device_name_patterns,
+    selected_device_ids,
+    visible_devices_by_name,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -150,31 +156,39 @@ def _device_selection_schema(
 ) -> vol.Schema:
     """Build grouped device selectors for both config-flow device screens.
 
-    Each populated group has an all-checkbox and an expandable multi-select.
-    The checkbox defaults to true when every device in that group is selected;
-    turning it off exposes the saved individual choices.
+    A repeated type gets one compact "all" option plus its individual devices.
+    Singleton types show only their device, avoiding a redundant all control.
     """
 
     fields: dict[object, object] = {}
     for group in device_selection_groups(devices):
         ids = list(group.device_ids)
         all_selected = bool(ids) and set(ids).issubset(selected_ids)
-        options = [
+        device_options = [
             selector.SelectOptionDict(
                 value=str(device["device_id"]),
-                label=f"{group.label} · {_device_option_label(device)}",
+                label=_device_option_label(device),
             )
             for device in group.devices
         ]
-        fields[vol.Required(group.all_field, default=all_selected)] = (
-            selector.BooleanSelector()
-        )
         selected_in_group = [
             device_id for device_id in ids if device_id in selected_ids
         ]
-        fields[vol.Optional(
+        if len(ids) > 1:
+            options = [
+                selector.SelectOptionDict(
+                    value=group.all_value,
+                    label=f"全部{group.label}",
+                ),
+                *device_options,
+            ]
+            default = [group.all_value] if all_selected else selected_in_group
+        else:
+            options = device_options
+            default = selected_in_group
+        fields[vol.Required(
             group.device_field,
-            default=[] if all_selected else selected_in_group,
+            default=default,
         )] = selector.SelectSelector(
             selector.SelectSelectorConfig(
                 options=options,
@@ -556,6 +570,7 @@ class OrviboSmartControlOptionsFlow(config_entries.OptionsFlow):
                 "transport_mode",
                 "lan_credentials",
                 "devices",
+                "device_name_filter",
                 "reauth",
                 "sync_device_names",
                 "clear_local_data",
@@ -940,6 +955,42 @@ class OrviboSmartControlOptionsFlow(config_entries.OptionsFlow):
             ),
         )
 
+    async def async_step_device_name_filter(self, user_input=None):
+        """Hide devices whose cloud names match configured patterns."""
+
+        options = dict(self._config_entry.options)
+        if user_input is not None:
+            patterns = parse_hidden_device_name_patterns(
+                user_input.get(CONF_HIDDEN_DEVICE_NAME_PATTERNS, "")
+            )
+            if patterns:
+                options[CONF_HIDDEN_DEVICE_NAME_PATTERNS] = patterns
+            else:
+                options.pop(CONF_HIDDEN_DEVICE_NAME_PATTERNS, None)
+            return self.async_create_entry(title="", data=options)
+
+        current = "\n".join(
+            parse_hidden_device_name_patterns(
+                options.get(CONF_HIDDEN_DEVICE_NAME_PATTERNS, [])
+            )
+        )
+        return self.async_show_form(
+            step_id="device_name_filter",
+            data_schema=vol.Schema(
+                {
+                    vol.Optional(
+                        CONF_HIDDEN_DEVICE_NAME_PATTERNS,
+                        default=current,
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            multiline=True,
+                            type=selector.TextSelectorType.TEXT,
+                        )
+                    )
+                }
+            ),
+        )
+
     async def async_step_devices(self, user_input=None):
         """重新选择要接入的设备。"""
         errors: dict[str, str] = {}
@@ -956,11 +1007,41 @@ class OrviboSmartControlOptionsFlow(config_entries.OptionsFlow):
             if not self._devices:
                 errors["base"] = "no_devices"
 
+        patterns = parse_hidden_device_name_patterns(
+            self._config_entry.options.get(
+                CONF_HIDDEN_DEVICE_NAME_PATTERNS, []
+            )
+        )
+        visible_devices = [
+            dict(device)
+            for device in visible_devices_by_name(self._devices, patterns)
+        ]
+        if self._devices and not visible_devices:
+            errors["base"] = "no_visible_devices"
+
         if user_input is not None:
-            selected = merge_grouped_selection(user_input, self._devices)
-            if not selected:
+            selected_visible = merge_grouped_selection(
+                user_input, visible_devices
+            )
+            if not selected_visible:
                 errors["base"] = "no_devices_selected"
             else:
+                unfiltered_options = dict(self._config_entry.options)
+                unfiltered_options.pop(CONF_HIDDEN_DEVICE_NAME_PATTERNS, None)
+                configured = selected_device_ids(
+                    unfiltered_options,
+                    [str(device["device_id"]) for device in self._devices],
+                )
+                visible_ids = {
+                    str(device["device_id"]) for device in visible_devices
+                }
+                preserved_hidden = configured - visible_ids
+                requested = set(selected_visible) | preserved_hidden
+                selected = [
+                    str(device["device_id"])
+                    for device in self._devices
+                    if str(device["device_id"]) in requested
+                ]
                 options = dict(self._config_entry.options)
                 options[CONF_SELECTED_DEVICE_IDS] = selected
                 return self.async_create_entry(
@@ -970,12 +1051,17 @@ class OrviboSmartControlOptionsFlow(config_entries.OptionsFlow):
 
         current = selected_device_ids(
             self._config_entry.options,
-            [str(d["device_id"]) for d in self._devices],
+            {
+                str(device["device_id"]): device
+                for device in visible_devices
+            },
         )
         if user_input is not None:
-            current = set(merge_grouped_selection(user_input, self._devices))
+            current = set(
+                merge_grouped_selection(user_input, visible_devices)
+            )
         return self.async_show_form(
             step_id="devices",
-            data_schema=_device_selection_schema(self._devices, current),
+            data_schema=_device_selection_schema(visible_devices, current),
             errors=errors,
         )

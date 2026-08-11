@@ -25,7 +25,7 @@
             },
             "devices": {
                 "title": "选择设备",
-                "description": "设备按类型分组。保持分类的全选开关可添加该类全部设备；关闭后展开列表即可逐台勾选。",
+                "description": "设备按类型分组。展开分类即可勾选设备；同类有多台时可选择“全部”，只有一台时直接勾选。",
                 "data": {
                     "device_group_lights_all": "全选灯具",
                     "device_group_lights": "灯具（展开后逐台选择）",
@@ -79,6 +79,7 @@
                     "transport_mode": "配置 LAN / 云端传输模式",
                     "lan_credentials": "配置独立 MixPad LAN 凭据",
                     "devices": "继续添加或移除设备",
+                    "device_name_filter": "按名称隐藏设备",
                     "reauth": "更新欧瑞博账号密码",
                     "sync_device_names": "同步云端设备名称",
                     "clear_local_data": "清理本地配置文件",
@@ -159,9 +160,16 @@
                     "lock_user_names": "用户映射"
                 }
             },
+            "device_name_filter": {
+                "title": "按名称隐藏设备",
+                "description": "每行输入一个名称关键词或通配符。关键词会匹配设备名称中的任意位置；通配符支持 *、? 和 [0-9] 等字符范围。匹配的设备不会创建 Home Assistant 实体，也不会显示在设备选择页面。删除规则后设备会重新显示。",
+                "data": {
+                    "hidden_device_name_patterns": "名称关键词或通配符"
+                }
+            },
             "devices": {
                 "title": "选择设备",
-                "description": "设备按类型分组。保持分类的全选开关可添加该类全部设备；关闭后展开列表即可逐台勾选。",
+                "description": "设备按类型分组。展开分类即可勾选设备；同类有多台时可选择“全部”，只有一台时直接勾选。",
                 "data": {
                     "device_group_lights_all": "全选灯具",
                     "device_group_lights": "灯具（展开后逐台选择）",
@@ -200,6 +208,7 @@
             "no_devices_selected": "请至少勾选一台设备",
             "cannot_connect": "无法连接欧瑞博云",
             "no_devices": "该家庭中没有发现设备",
+            "no_visible_devices": "发现的设备已全部被名称规则隐藏",
             "lan_credentials_required": "请输入独立的 MixPad 用户名和密码",
             "invalid_service": "通知服务必须使用 domain.service 格式"
         },

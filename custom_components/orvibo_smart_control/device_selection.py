@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -12,6 +11,7 @@ from .selection import CONF_SELECTED_DEVICE_IDS
 
 DEVICE_GROUP_FIELD_PREFIX = "device_group_"
 DEVICE_GROUP_ALL_FIELD_PREFIX = "device_group_all_"
+DEVICE_GROUP_ALL_VALUE_PREFIX = "__all__:"
 
 
 @dataclass(frozen=True)
@@ -28,7 +28,19 @@ class DeviceSelectionGroup:
 
     @property
     def all_field(self) -> str:
+        """Compatibility key used by the previous two-control form."""
+
+        return f"{DEVICE_GROUP_FIELD_PREFIX}{self.key}_all"
+
+    @property
+    def legacy_all_field(self) -> str:
         return f"{DEVICE_GROUP_ALL_FIELD_PREFIX}{self.key}"
+
+    @property
+    def all_value(self) -> str:
+        """Sentinel selected by the single-control form for a whole group."""
+
+        return f"{DEVICE_GROUP_ALL_VALUE_PREFIX}{self.key}"
 
     @property
     def device_ids(self) -> tuple[str, ...]:
@@ -130,11 +142,6 @@ def _sub_type(device: Mapping[str, Any]) -> int | None:
         return None
 
 
-def _slug(value: str) -> str:
-    value = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
-    return value or "other"
-
-
 def infer_device_group(device: Mapping[str, Any]) -> tuple[str, str]:
     """Infer a group key and display label from one device record."""
 
@@ -161,8 +168,6 @@ def infer_device_group(device: Mapping[str, Any]) -> tuple[str, str]:
     named_group = _TYPE_NAME_GROUPS.get(type_name)
     if named_group is not None:
         return named_group
-    if type_name and type_name != "unknown":
-        return _slug(type_name), str(device.get("device_type")).strip()
     return "other", "其他设备"
 
 
@@ -210,12 +215,20 @@ def merge_grouped_selection(
     else:
         requested: set[str] = set()
         for group in device_selection_groups(ordered_devices):
-            if bool(user_input.get(group.all_field, False)):
+            values = user_input.get(group.device_field, [])
+            normalized = (
+                {str(value) for value in values}
+                if isinstance(values, (list, tuple, set))
+                else set()
+            )
+            if (
+                group.all_value in normalized
+                or bool(user_input.get(group.all_field, False))
+                or bool(user_input.get(group.legacy_all_field, False))
+            ):
                 requested.update(group.device_ids)
                 continue
-            values = user_input.get(group.device_field, [])
-            if isinstance(values, (list, tuple, set)):
-                requested.update(str(value) for value in values)
+            requested.update(normalized)
 
     requested &= available
     return [
