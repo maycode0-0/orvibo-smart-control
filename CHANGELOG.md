@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.3] - 2026-08-12
+
+### Fixed
+
+- 补充 P20 门锁设备档案，支持 `deviceType=107`、`deviceType=522` 无子类型，
+  以及 `subDeviceType=462/463`，可在 Home Assistant 中显示门磁、锁状态、
+  电量和媒体实体。
+- P20 继续使用云端只读设备通道；门磁开关状态可随云端推送实时更新。
+
+### Verification
+
+- 完整单元测试：375 项通过。
+- Python 语法与 Ruff 致命错误检查通过。
+
 ## [0.1.2] - 2026-08-11
 
 ### Changed
