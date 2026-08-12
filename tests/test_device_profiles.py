@@ -86,6 +86,22 @@ class DeviceProfileTests(unittest.TestCase):
                 self.assertEqual(profile.category, category)
                 self.assertTrue(profile.hardware_verified)
 
+    def test_p20_lock_variants_are_supported(self) -> None:
+        for device in (
+            {"device_type_raw": 107},
+            {"device_type_raw": 522},
+            {"device_type_raw": 522, "sub_device_type": 462},
+            {"device_type_raw": 522, "sub_device_type": 463},
+        ):
+            with self.subTest(device=device):
+                profile = self.module.get_device_profile(device)
+                self.assertEqual(
+                    profile.category,
+                    self.module.DeviceCategory.DOOR_LOCK,
+                )
+                self.assertTrue(profile.hardware_verified)
+                self.assertFalse(profile.registration_only)
+
     def test_audited_unsupported_models_are_named_but_not_controllable(self) -> None:
         examples = (
             (63, "bbfed49c738948b989911f9f9f73d759", "隐藏式智能开关"),

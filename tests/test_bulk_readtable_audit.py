@@ -96,7 +96,7 @@ class BulkReadtableAuditTests(unittest.TestCase):
         data = {
             "device": [
                 {"deviceId": "music", "deviceType": 128},
-                {"deviceId": "lock", "deviceType": 107},
+                {"deviceId": "unknown", "deviceType": 9002},
             ]
         }
 
@@ -108,9 +108,9 @@ class BulkReadtableAuditTests(unittest.TestCase):
                     "device_type_raw": 128,
                 },
                 {
-                    "device_id": "lock",
+                    "device_id": "unknown",
                     "device_type": "light",
-                    "device_type_raw": 107,
+                    "device_type_raw": 9002,
                 },
             ]
 

@@ -147,6 +147,22 @@ class StatusDispatcherTests(unittest.TestCase):
         )
         self.assertEqual(captured, ["lan"])
 
+    def test_p20_type_107_updates_door_state(self) -> None:
+        devices = {"p20": {"device_type_raw": 107}}
+        states = {"p20": {"properties": {}}}
+        dispatcher, calls, _, _ = self.make_dispatcher(devices, states)
+
+        dispatcher.dispatch(
+            "p20", {"cmd": 42, "properties": {"door_status": "open"}}
+        )
+        self.assertTrue(states["p20"]["door_state"])
+
+        dispatcher.dispatch(
+            "p20", {"cmd": 42, "properties": {"door_status": "closed"}}
+        )
+        self.assertFalse(states["p20"]["door_state"])
+        self.assertEqual(calls["lock"], ["p20", "p20"])
+
     def test_light_packet_uses_registered_parser_and_notifies(self) -> None:
         devices = {"lamp": {"device_type_raw": 501}}
         states = {"lamp": {"state": False}}

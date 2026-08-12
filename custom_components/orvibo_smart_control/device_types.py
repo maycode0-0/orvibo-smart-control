@@ -25,7 +25,7 @@ class DeviceCategory(Enum):
     MONO_LIGHT = "mono_light"                          # deviceTypeId=501
     CCT_LIGHT_STRIP = "cct_light_strip"                # deviceTypeId=503
     BACH_SWITCH = "bach_switch"                        # deviceTypeId=518
-    DOOR_LOCK = "door_lock"                            # deviceTypeId=522, classId=463
+    DOOR_LOCK = "door_lock"                            # deviceTypeId=107/522, classId=462/463
     WIFI_CAMERA = "wifi_camera"                        # deviceTypeId=14
     LIGHT_VIRTUAL_GROUP = "light_virtual_group"        # deviceTypeId=10086
     DIM_COLOR_LIGHT = "dim_color_light"                # deviceTypeId=38
@@ -138,7 +138,7 @@ _CATEGORY_INFO: Dict[DeviceCategory, CategoryInfo] = {
     DeviceCategory.DOOR_LOCK: CategoryInfo(
         category=DeviceCategory.DOOR_LOCK,
         label="智能门锁",
-        description="deviceTypeId=522, classId=463，锁状态/门状态/电量",
+        description="deviceTypeId=107/522, classId=462/463，锁状态/门状态/电量",
         capabilities=("lock", "door_state", "battery"),
     ),
     DeviceCategory.WIFI_CAMERA: CategoryInfo(
@@ -309,6 +309,7 @@ _DEVICE_TYPE_MAP: Dict[int, DeviceCategory] = {
     501: DeviceCategory.MONO_LIGHT,
     503: DeviceCategory.CCT_LIGHT,
     518: DeviceCategory.BACH_SWITCH,
+    107: DeviceCategory.DOOR_LOCK,
     522: DeviceCategory.DOOR_LOCK,
     45: DeviceCategory.MIXPAD_GATEWAY,  # Zigbee Mini Hub (Hub100)，隐藏
     14: DeviceCategory.WIFI_CAMERA,
@@ -343,6 +344,7 @@ _CLASS_ID_MAP: Dict[int, DeviceCategory] = {
     436: DeviceCategory.CCT_LIGHT_STRIP,
     424: DeviceCategory.BACH_SWITCH,
     1107: DeviceCategory.BACH_SWITCH,
+    462: DeviceCategory.DOOR_LOCK,
     463: DeviceCategory.DOOR_LOCK,
     1114: DeviceCategory.VENTILATION_SYSTEM,
 }
@@ -489,12 +491,10 @@ def classify_device(device: Dict[str, Any]) -> DeviceCategory:
         if sub_type == 461:
             return DeviceCategory.CCT_LIGHT
         return DeviceCategory.UNKNOWN
+    if device_type_raw == 107:
+        return DeviceCategory.DOOR_LOCK
     if device_type_raw == 522:
-        return (
-            DeviceCategory.DOOR_LOCK
-            if sub_type == 463
-            else DeviceCategory.UNKNOWN
-        )
+        return DeviceCategory.DOOR_LOCK
     if device_type_raw == 501:
         return (
             DeviceCategory.MONO_LIGHT
