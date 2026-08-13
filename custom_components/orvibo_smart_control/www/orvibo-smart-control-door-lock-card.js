@@ -12,7 +12,7 @@
  */
 
 const ORVIBO_PREFIX = "orvibo_smart_control_";
-const CARD_VERSION = "0.1.3";
+const CARD_VERSION = "0.1.4";
 
 class OrviboSmartControlDoorLockCard extends HTMLElement {
   constructor() {
