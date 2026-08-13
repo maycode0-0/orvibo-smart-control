@@ -49,6 +49,7 @@ from .coordinator import OrviboSmartControlCoordinator
 from .selection import CONF_DEVICE_AREAS, selected_device_ids
 from .service_handlers import async_register_services
 from .runtime_options import AvailabilityNotifier, IntegrationUpdateChecker
+from .registry_sync import sync_selected_device_registries
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -239,6 +240,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
 
     # 使用 async_forward_entry_setups 一次性加载所有平台
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    removed_registry_devices = sync_selected_device_registries(
+        hass, entry, coordinator.devices
+    )
+    if removed_registry_devices:
+        _LOGGER.info(
+            "已从 Home Assistant 注册表移除 %s 个未选设备",
+            removed_registry_devices,
+        )
 
     async def _apply_after_refresh():
         """等待 coordinator 第一次刷新完成后再应用区域映射。"""
