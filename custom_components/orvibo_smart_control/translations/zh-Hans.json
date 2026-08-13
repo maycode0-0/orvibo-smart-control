@@ -3,10 +3,14 @@
         "step": {
             "user": {
                 "title": "ORVIBO Smart Control 登录",
-                "description": "请输入您的智家365账号（手机号或邮箱）和密码",
+                "description": "请输入智家365账号和密码。您也可以在此按云端名称忽略设备，并为 MixPad LAN 登录配置独立账号。名称规则每行一个，支持关键词和通配符。",
                 "data": {
                     "username": "手机号或邮箱",
-                    "password": "密码"
+                    "password": "密码",
+                    "hidden_device_name_patterns": "要忽略的设备名称（可选）",
+                    "use_independent_lan_credentials": "使用独立的 MixPad LAN 凭据",
+                    "lan_username": "MixPad 用户名",
+                    "lan_password": "MixPad 密码"
                 }
             },
             "select_family": {
@@ -64,6 +68,8 @@
             "invalid_username": "手机号或邮箱格式不正确",
             "no_devices_selected": "请至少勾选一台设备",
             "no_devices": "该家庭中没有发现设备",
+            "no_visible_devices": "发现的设备已全部被名称规则隐藏",
+            "lan_credentials_required": "请输入独立的 MixPad 用户名和密码",
             "cannot_connect": "无法连接欧瑞博云"
         },
         "abort": {

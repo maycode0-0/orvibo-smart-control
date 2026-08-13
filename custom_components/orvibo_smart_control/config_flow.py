@@ -315,6 +315,7 @@ class OrviboSmartControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     def __init__(self) -> None:
         self._devices: list[dict] = []
         self._pending_selected_ids: list[str] = []
+        self._pending_options: dict[str, object] = {}
         self._cloud = CHINA_CLOUD
 
     async def async_step_user(
@@ -323,15 +324,44 @@ class OrviboSmartControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
 
         if user_input is not None:
-            username = user_input[CONF_USERNAME]
-            password = user_input[CONF_PASSWORD]
+            username = str(user_input.get(CONF_USERNAME) or "").strip()
+            password = str(user_input.get(CONF_PASSWORD) or "")
+            hidden_name_patterns = parse_hidden_device_name_patterns(
+                user_input.get(CONF_HIDDEN_DEVICE_NAME_PATTERNS, "")
+            )
+            use_independent_lan_credentials = bool(
+                user_input.get(CONF_USE_INDEPENDENT_LAN_CREDENTIALS, False)
+            )
+            lan_username = str(
+                user_input.get(CONF_LAN_USERNAME) or ""
+            ).strip()
+            lan_password = str(user_input.get(CONF_LAN_PASSWORD) or "")
 
             if not username or not password:
                 errors["base"] = "empty_username_or_password"
             elif not re.match(r'^1[3-9]\d{9}$', username) and not re.match(r'^[^@]+@[^@]+\.[^@]+$', username):
                 errors[CONF_USERNAME] = "invalid_username"
+            elif use_independent_lan_credentials and (
+                not lan_username or not lan_password
+            ):
+                errors["base"] = "lan_credentials_required"
 
             if not errors:
+                self._pending_options = {
+                    CONF_USE_INDEPENDENT_LAN_CREDENTIALS: (
+                        use_independent_lan_credentials
+                    ),
+                }
+                if hidden_name_patterns:
+                    self._pending_options[
+                        CONF_HIDDEN_DEVICE_NAME_PATTERNS
+                    ] = hidden_name_patterns
+                if use_independent_lan_credentials:
+                    self._pending_options[CONF_LAN_USERNAME] = lan_username
+                    self._pending_options[CONF_LAN_PASSWORD_HASH] = password_hash(
+                        lan_password
+                    )
+
                 # 临时 client 用于验证登录并获取家庭列表
                 temp_client = None
                 try:
@@ -375,10 +405,34 @@ class OrviboSmartControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="user",
-            data_schema=vol.Schema({
-                vol.Required(CONF_USERNAME): str,
-                vol.Required(CONF_PASSWORD): str,
-            }),
+            data_schema=vol.Schema(
+                {
+                    vol.Required(CONF_USERNAME): selector.TextSelector(),
+                    vol.Required(CONF_PASSWORD): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.PASSWORD,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_HIDDEN_DEVICE_NAME_PATTERNS,
+                    ): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            multiline=True,
+                            type=selector.TextSelectorType.TEXT,
+                        )
+                    ),
+                    vol.Required(
+                        CONF_USE_INDEPENDENT_LAN_CREDENTIALS,
+                        default=False,
+                    ): selector.BooleanSelector(),
+                    vol.Optional(CONF_LAN_USERNAME): selector.TextSelector(),
+                    vol.Optional(CONF_LAN_PASSWORD): selector.TextSelector(
+                        selector.TextSelectorConfig(
+                            type=selector.TextSelectorType.PASSWORD,
+                        )
+                    ),
+                }
+            ),
             errors=errors,
         )
 
@@ -434,11 +488,23 @@ class OrviboSmartControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if not self._devices:
                 errors["base"] = "no_devices"
 
+        patterns = parse_hidden_device_name_patterns(
+            self._pending_options.get(CONF_HIDDEN_DEVICE_NAME_PATTERNS, [])
+        )
+        visible_devices = [
+            dict(device)
+            for device in visible_devices_by_name(self._devices, patterns)
+        ]
+        if self._devices and not visible_devices:
+            errors["base"] = "no_visible_devices"
+
         if user_input is not None:
-            available = {str(d["device_id"]) for d in self._devices}
+            available = {str(d["device_id"]) for d in visible_devices}
             self._pending_selected_ids = [
                 device_id
-                for device_id in merge_grouped_selection(user_input, self._devices)
+                for device_id in merge_grouped_selection(
+                    user_input, visible_devices
+                )
                 if device_id in available
             ]
             if not self._pending_selected_ids:
@@ -449,11 +515,11 @@ class OrviboSmartControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         default_ids = set(
             self._pending_selected_ids
             if user_input is not None
-            else (str(d["device_id"]) for d in self._devices)
+            else (str(d["device_id"]) for d in visible_devices)
         )
         return self.async_show_form(
             step_id="devices",
-            data_schema=_device_selection_schema(self._devices, default_ids),
+            data_schema=_device_selection_schema(visible_devices, default_ids),
             errors=errors,
         )
 
@@ -544,6 +610,7 @@ class OrviboSmartControlConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 CONF_CLOUD_REGION: self._cloud.region.value,
             },
             options={
+                **self._pending_options,
                 CONF_SELECTED_DEVICE_IDS: self._pending_selected_ids,
             },
         )

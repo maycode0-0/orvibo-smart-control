@@ -23,6 +23,18 @@ class _ConfigFlow:
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__()
 
+    def async_show_form(self, **kwargs):
+        return {"type": "form", **kwargs}
+
+    def async_create_entry(self, **kwargs):
+        return {"type": "create_entry", **kwargs}
+
+    async def async_set_unique_id(self, unique_id):
+        self.unique_id = unique_id
+
+    def _abort_if_unique_id_configured(self):
+        return None
+
 
 class _OptionsFlow:
     def async_show_menu(self, **kwargs):
@@ -340,6 +352,165 @@ class TestOptionsReauth(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["type"], "form")
         self.assertEqual(result["errors"]["base"], "auth_failed")
         flow.hass.config_entries.async_update_entry.assert_not_called()
+
+
+class TestInitialSetupOptions(unittest.IsolatedAsyncioTestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.module, cls.cloud = _load_config_flow()
+
+    async def test_user_form_exposes_name_and_mixpad_settings(self):
+        flow = self.module.OrviboSmartControlConfigFlow()
+
+        result = await flow.async_step_user()
+
+        self.assertEqual(result["type"], "form")
+        self.assertEqual(
+            set(result["data_schema"]),
+            {
+                "username",
+                "password",
+                "hidden_device_name_patterns",
+                "use_independent_lan_credentials",
+                "lan_username",
+                "lan_password",
+            },
+        )
+
+    async def test_independent_mixpad_requires_both_credentials(self):
+        flow = self.module.OrviboSmartControlConfigFlow()
+
+        result = await flow.async_step_user(
+            {
+                "username": "account@example.com",
+                "password": "cloud-secret",
+                "use_independent_lan_credentials": True,
+                "lan_username": "",
+                "lan_password": "",
+            }
+        )
+
+        self.assertEqual(result["type"], "form")
+        self.assertEqual(result["errors"]["base"], "lan_credentials_required")
+
+    async def test_login_submission_prepares_initial_options(self):
+        flow = self.module.OrviboSmartControlConfigFlow()
+        flow.hass = object()
+        cloud_client = SimpleNamespace(
+            async_detect_cloud=AsyncMock(return_value=True),
+            family_list=[{"familyId": "family-1", "familyName": "Home"}],
+            family_id="family-1",
+            family_name="Home",
+            cloud=self.cloud,
+            close=AsyncMock(),
+        )
+        visible = {"device_id": "visible", "device_name": "客厅灯"}
+
+        with (
+            patch.object(self.module, "HttpsClient", return_value=cloud_client),
+            patch.object(flow, "_probe_ssl_login", AsyncMock(return_value=True)),
+            patch.object(
+                self.module,
+                "_fetch_devices",
+                AsyncMock(
+                    return_value=[
+                        visible,
+                        {"device_id": "hidden", "device_name": "测试控制器"},
+                    ]
+                ),
+            ),
+            patch.object(
+                self.module,
+                "visible_devices_by_name",
+                return_value=[visible],
+            ),
+            patch.object(
+                self.module,
+                "_device_selection_schema",
+                return_value="device-schema",
+            ),
+        ):
+            result = await flow.async_step_user(
+                {
+                    "username": "account@example.com",
+                    "password": "cloud-secret",
+                    "hidden_device_name_patterns": "测试\n*控制器*",
+                    "use_independent_lan_credentials": True,
+                    "lan_username": "mixpad@example.com",
+                    "lan_password": "lan-secret",
+                }
+            )
+
+        self.assertEqual(result["type"], "form")
+        self.assertEqual(result["step_id"], "devices")
+        self.assertEqual(
+            flow._pending_options,
+            {
+                "hidden_device_name_patterns": ["测试", "*控制器*"],
+                "use_independent_lan_credentials": True,
+                "lan_username": "mixpad@example.com",
+                "lan_password_hash": "hash:lan-secret",
+            },
+        )
+        self.assertEqual(result["data_schema"], "device-schema")
+
+    async def test_initial_settings_are_saved_without_plaintext_password(self):
+        flow = self.module.OrviboSmartControlConfigFlow()
+        flow._username = "account@example.com"
+        flow._password_hash = "hash:cloud-secret"
+        flow._family_id = "family-1"
+        flow._family_name = "Home"
+        flow._pending_selected_ids = ["visible-device"]
+        flow._pending_options = {
+            "hidden_device_name_patterns": ["测试", "*控制器*"],
+            "use_independent_lan_credentials": True,
+            "lan_username": "mixpad@example.com",
+            "lan_password_hash": "hash:lan-secret",
+        }
+
+        result = await flow._create_entry()
+
+        self.assertEqual(result["type"], "create_entry")
+        self.assertEqual(
+            result["options"]["hidden_device_name_patterns"],
+            ["测试", "*控制器*"],
+        )
+        self.assertEqual(
+            result["options"]["lan_password_hash"], "hash:lan-secret"
+        )
+        self.assertNotIn("lan_password", result["options"])
+        self.assertEqual(
+            result["options"]["selected_device_ids"], ["visible-device"]
+        )
+
+    async def test_initial_device_step_hides_matching_names(self):
+        flow = self.module.OrviboSmartControlConfigFlow()
+        flow._devices = [
+            {"device_id": "visible", "device_name": "客厅灯"},
+            {"device_id": "hidden", "device_name": "测试控制器"},
+        ]
+        flow._pending_options = {
+            "hidden_device_name_patterns": ["测试"],
+        }
+
+        with (
+            patch.object(
+                self.module,
+                "visible_devices_by_name",
+                return_value=[flow._devices[0]],
+            ),
+            patch.object(
+                self.module,
+                "_device_selection_schema",
+                return_value="device-schema",
+            ) as schema,
+        ):
+            result = await flow.async_step_devices()
+
+        self.assertEqual(result["type"], "form")
+        self.assertEqual(result["data_schema"], "device-schema")
+        self.assertEqual(schema.call_args.args[0], [flow._devices[0]])
+        self.assertEqual(schema.call_args.args[1], {"visible"})
 
 
 if __name__ == "__main__":

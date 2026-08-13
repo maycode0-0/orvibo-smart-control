@@ -3,10 +3,14 @@
         "step": {
             "user": {
                 "title": "ORVIBO Smart Control - HomeMate Login",
-                "description": "Enter your HomeMate account (phone number or email) and password",
+                "description": "Enter your HomeMate account and password. You can also hide devices by cloud name and configure a separate account used only for MixPad LAN login. Enter one name keyword or wildcard pattern per line.",
                 "data": {
                     "username": "Phone / Email",
-                    "password": "Password"
+                    "password": "Password",
+                    "hidden_device_name_patterns": "Names to ignore (optional)",
+                    "use_independent_lan_credentials": "Use independent MixPad LAN credentials",
+                    "lan_username": "MixPad username",
+                    "lan_password": "MixPad password"
                 }
             },
             "select_family": {
@@ -64,6 +68,8 @@
             "invalid_username": "Invalid phone number or email format",
             "no_devices_selected": "Select at least one device",
             "no_devices": "No devices found in this family",
+            "no_visible_devices": "All discovered devices are hidden by the name rules",
+            "lan_credentials_required": "Enter the independent MixPad username and password",
             "cannot_connect": "Cannot connect to ORVIBO cloud"
         },
         "abort": {
