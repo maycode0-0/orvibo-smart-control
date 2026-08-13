@@ -251,6 +251,29 @@ class TestOptionsReauth(unittest.IsolatedAsyncioTestCase):
             self.module.selector.SelectSelectorMode.LIST,
         )
 
+    def test_p20_model_is_supported_without_type_metadata(self):
+        device = {
+            "device_id": "lock-1",
+            "device_name": "入户门锁",
+            "device_type_raw": 999999,
+            "model": "dec7d494f0454110805c0d5f7e7cba73",
+        }
+        supported_profile = SimpleNamespace(
+            category="door_lock",
+            registration_only=False,
+        )
+
+        with patch.object(
+            self.module,
+            "get_device_profile",
+            return_value=supported_profile,
+        ) as get_profile:
+            label = self.module._device_option_label(device)
+
+        self.assertEqual(label, "入户门锁")
+        self.assertNotIn("暂未支持", label)
+        get_profile.assert_called_once_with(device)
+
     async def test_device_name_filter_saves_rules_and_preserves_options(self):
         flow, _ = self._flow()
 

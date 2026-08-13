@@ -349,6 +349,14 @@ _CLASS_ID_MAP: Dict[int, DeviceCategory] = {
     1114: DeviceCategory.VENTILATION_SYSTEM,
 }
 
+# P20 records are not consistent across cloud inventory endpoints: some omit
+# deviceType/classId even though the exact official model identity is present.
+# These two catalogue models have verified read-only door-lock semantics.
+_VERIFIED_DOOR_LOCK_MODELS = frozenset({
+    "112edf14194543ed90148ce3a447ad33",  # P20 / Z1
+    "dec7d494f0454110805c0d5f7e7cba73",  # P20 / Z2
+})
+
 # 不需要展示、也不需要加入 HA 的设备类别
 HIDDEN_CATEGORIES: set = {
     DeviceCategory.MIXPAD_GATEWAY,      # deviceTypeId=114
@@ -462,6 +470,13 @@ def classify_device(device: Dict[str, Any]) -> DeviceCategory:
         raw_sub_value = device.get("subDeviceType")
     device_type_raw = _safe_int(raw_type_value)
     sub_type = _safe_int(raw_sub_value)
+
+    model = device.get("model")
+    if (
+        isinstance(model, str)
+        and model.strip() in _VERIFIED_DOOR_LOCK_MODELS
+    ):
+        return DeviceCategory.DOOR_LOCK
 
     # 真机 Profile 必须先于裸 deviceType 映射。
     if device_type_raw == 0:

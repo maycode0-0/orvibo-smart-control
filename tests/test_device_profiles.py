@@ -92,6 +92,12 @@ class DeviceProfileTests(unittest.TestCase):
             {"device_type_raw": 522},
             {"device_type_raw": 522, "sub_device_type": 462},
             {"device_type_raw": 522, "sub_device_type": 463},
+            {"model": "112edf14194543ed90148ce3a447ad33"},
+            {"model": "dec7d494f0454110805c0d5f7e7cba73"},
+            {
+                "device_type_raw": 999999,
+                "model": "dec7d494f0454110805c0d5f7e7cba73",
+            },
         ):
             with self.subTest(device=device):
                 profile = self.module.get_device_profile(device)
