@@ -149,47 +149,52 @@ def normalize_lock_event(payload: Any) -> Optional[dict[str, Any]]:
     server = event.get("server")
     name = event.get("name")
     value = _mapping(event.get("value"))
+    event_time = payload.get("time")
+    if event_time is None:
+        event_time = _mapping(payload.get("raw_data")).get("time")
 
     if server == "doorLock" and name == "unlockEvent":
         return {
             "kind": "unlock",
             "unlock_type": value.get("type"),
             "unlock_user_id": value.get("userId"),
-            "time": payload.get("time"),
+            "time": event_time,
         }
     if server == "doorLock" and name == "errorUnlockEvent":
         return {
             "kind": "error_unlock",
             "unlock_type": value.get("type"),
-            "time": payload.get("time"),
+            "time": event_time,
         }
     if server == "doorLock" and name == "doorUnclose":
-        return {"kind": "door_unclose", "time": payload.get("time")}
+        return {"kind": "door_unclose", "time": event_time}
     if server == "doorLock" and name == "picklockEvent":
         return {
             "kind": "picklock",
             "video_url": value.get("videoUrl"),
             "pic_url": value.get("url"),
-            "time": payload.get("time"),
+            "time": event_time,
         }
     if server == "doorLock" and name == "leaveHomeEvent":
         return {
             "kind": "leave_home",
             "video_url": value.get("videoUrl"),
             "pic_url": value.get("url"),
-            "time": payload.get("time"),
+            "time": event_time,
         }
-    if server == "doorbell" and name == "ring":
+    if (server == "doorbell" and name == "ring") or (
+        server in (None, "doorbell") and name == "doorbell_ring"
+    ):
         return {
             "kind": "ring",
-            "doorbell_url": value.get("url"),
+            "doorbell_url": value.get("url") or value.get("picture_url"),
             "doorbell_ip": value.get("doorbell_local_Ip"),
-            "time": payload.get("time"),
+            "time": event_time,
         }
-    if server == "doorbell" and name == "answered":
-        return {"kind": "answered", "time": payload.get("time")}
-    if server == "doorbell" and name == "bye":
-        return {"kind": "bye", "time": payload.get("time")}
+    if server in (None, "doorbell") and name == "answered":
+        return {"kind": "answered", "time": event_time}
+    if server in (None, "doorbell") and name == "bye":
+        return {"kind": "bye", "time": event_time}
     return None
 
 

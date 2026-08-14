@@ -164,6 +164,26 @@ class LockEventTests(unittest.TestCase):
         self.assertEqual(event["kind"], "ring")
         self.assertEqual(event["doorbell_url"], "http://192.168.1.10/live")
 
+    def test_flat_doorbell_ring_event_from_live_capture(self) -> None:
+        event = lock_status.normalize_lock_event(
+            {
+                "cmd": 352,
+                "raw_data": {"time": 1786675012},
+                "event": {
+                    "name": "doorbell_ring",
+                    "value": {
+                        "picture_url": "/LOCK/pictureUploadRing/ring_3.jpg"
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(event["kind"], "ring")
+        self.assertEqual(
+            event["doorbell_url"], "/LOCK/pictureUploadRing/ring_3.jpg"
+        )
+        self.assertEqual(event["time"], 1786675012)
+
     def test_answered_and_bye(self) -> None:
         self.assertEqual(
             lock_status.normalize_lock_event(
@@ -176,6 +196,26 @@ class LockEventTests(unittest.TestCase):
                 {"event": {"server": "doorbell", "name": "bye", "value": {}}}
             )["kind"],
             "bye",
+        )
+
+    def test_flat_answered_and_bye_events(self) -> None:
+        for name in ("answered", "bye"):
+            with self.subTest(name=name):
+                event = lock_status.normalize_lock_event(
+                    {"event": {"name": name, "value": {}}}
+                )
+                self.assertEqual(event["kind"], name)
+
+    def test_cos_upload_result_is_not_a_doorbell_event(self) -> None:
+        self.assertIsNone(
+            lock_status.normalize_lock_event(
+                {
+                    "event": {
+                        "name": "cos_upload_result",
+                        "value": {"cos_upload_result": 0},
+                    }
+                }
+            )
         )
 
     def test_non_event_payload(self) -> None:

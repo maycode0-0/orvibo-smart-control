@@ -1097,6 +1097,7 @@ class SSLClient:
             "cmd": data.get("cmd"),
             "action": data.get("action"),
             "event": data.get("event"),
+            "time": data.get("time"),
             "deviceId": dev_id,
             "uid": uid,
             "online": True,  # 收到云端实时推送的设备视为在线

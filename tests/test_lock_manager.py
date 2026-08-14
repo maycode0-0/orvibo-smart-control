@@ -92,6 +92,20 @@ class LockEventManagerTests(unittest.TestCase):
         self.assertEqual(update.reset_kind, "doorbell")
         self.assertEqual(update.patch.values["doorbell_url"], "pic.jpg")
 
+    def test_flat_transient_ring_sets_doorbell_state(self) -> None:
+        update = self.module.LockEventManager.transient_update(
+            {
+                "event": {
+                    "name": "doorbell_ring",
+                    "value": {"picture_url": "captured.jpg"},
+                }
+            }
+        )
+
+        self.assertEqual(update.reset_kind, "doorbell")
+        self.assertIs(update.patch.values["doorbell_ring"], True)
+        self.assertEqual(update.patch.values["doorbell_url"], "captured.jpg")
+
     def test_message_snapshot_kind_is_normalized(self) -> None:
         event = self.module.LockEventManager.build_message(
             "lock",
