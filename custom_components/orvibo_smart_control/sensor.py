@@ -100,6 +100,18 @@ class OrviboSensorBase(CoordinatorEntity, SensorEntity):
         }
 
 
+class OrviboDoorLockSensorBase(OrviboSensorBase):
+    """门锁状态类传感器。
+
+    门锁云端设备列表经常省略或错误填充 ``online``，但协调器仍能通过
+    SSL/云端收到状态。锁状态、电池和开锁事件应继续显示最近一次有效值。
+    """
+
+    @property
+    def available(self) -> bool:
+        return self.coordinator.get_device_state(self._device_id) is not None
+
+
 class OrviboTransportPathSensor(OrviboSensorBase):
     """Diagnostic marker for the device's configured control/state path."""
 
@@ -342,7 +354,7 @@ class OrviboGasBatterySensor(OrviboSensorBase):
         return None
 
 
-class OrviboDoorLockDryBatterySensor(OrviboSensorBase):
+class OrviboDoorLockDryBatterySensor(OrviboDoorLockSensorBase):
     """智能门锁 - 干电池电量（deviceType=522）。"""
 
     def __init__(self, coordinator: OrviboSmartControlCoordinator, device: dict):
@@ -372,7 +384,7 @@ class OrviboDoorLockDryBatterySensor(OrviboSensorBase):
         }
 
 
-class OrviboDoorLockLithiumBatterySensor(OrviboSensorBase):
+class OrviboDoorLockLithiumBatterySensor(OrviboDoorLockSensorBase):
     """智能门锁 - 锂电池电量（deviceType=522）。"""
 
     def __init__(self, coordinator: OrviboSmartControlCoordinator, device: dict):
@@ -402,7 +414,7 @@ class OrviboDoorLockLithiumBatterySensor(OrviboSensorBase):
         }
 
 
-class OrviboDoorLockStateSensor(OrviboSensorBase):
+class OrviboDoorLockStateSensor(OrviboDoorLockSensorBase):
     """智能门锁 - 锁状态（已上锁/未上锁/门内已反锁/异常，绑定门磁）。"""
 
     _attr_device_class = SensorDeviceClass.ENUM
@@ -431,7 +443,7 @@ class OrviboDoorLockStateSensor(OrviboSensorBase):
         }
 
 
-class OrviboDoorLockUnlockSensor(OrviboSensorBase):
+class OrviboDoorLockUnlockSensor(OrviboDoorLockSensorBase):
     """智能门锁 - 开锁事件（状态直接显示"xxx开门"）。"""
 
     def __init__(self, coordinator: OrviboSmartControlCoordinator, device: dict):

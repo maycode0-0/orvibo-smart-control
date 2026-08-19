@@ -208,6 +208,57 @@ class TransportSensorTests(unittest.TestCase):
         created_types = {type(entity) for entity in entities}
         self.assertTrue(set(expected_types).issubset(created_types))
 
+    def test_lock_sensors_stay_available_when_online_flag_is_false(self):
+        coordinator = _Coordinator(self.module)
+        coordinator.devices = {
+            "lock-1": {
+                "device_id": "lock-1",
+                "device_name": "P20",
+                "device_type": "unknown",
+                "device_type_raw": 107,
+                "uid": "lock-uid",
+            }
+        }
+        coordinator.get_device_state = lambda _device_id: {
+            "online": False,
+            "dry_battery_level": 86,
+            "lithium_battery_level": 92,
+            "lock_status": "locked",
+        }
+        hass = SimpleNamespace(
+            data={"orvibo_smart_control": {"entry-1": coordinator}}
+        )
+        entry = SimpleNamespace(entry_id="entry-1", options={})
+        entities = []
+
+        asyncio.run(
+            self.module.async_setup_entry(hass, entry, entities.extend)
+        )
+
+        lock_entities = [
+            entity
+            for entity in entities
+            if isinstance(entity, self.module.OrviboDoorLockSensorBase)
+        ]
+        self.assertEqual(len(lock_entities), 4)
+        self.assertTrue(all(entity.available for entity in lock_entities))
+        self.assertEqual(
+            next(
+                entity
+                for entity in lock_entities
+                if isinstance(entity, self.module.OrviboDoorLockDryBatterySensor)
+            ).native_value,
+            86,
+        )
+        self.assertEqual(
+            next(
+                entity
+                for entity in lock_entities
+                if isinstance(entity, self.module.OrviboDoorLockStateSensor)
+            ).native_value,
+            "locked",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
