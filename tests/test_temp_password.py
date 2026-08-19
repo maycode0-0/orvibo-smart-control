@@ -126,6 +126,8 @@ class ParseAuthorizationItemTests(unittest.TestCase):
             "number": 1,
             "password": "121583",
             "phone": "13800138000",
+            "userName": "访客",
+            "type": 2,
             "unlockNum": 0,
             "startTime": 1783341252,
             "endTime": 1783341252 + 86400,
@@ -138,6 +140,8 @@ class ParseAuthorizationItemTests(unittest.TestCase):
         self.assertEqual(rec["authorized_id"], 101)
         self.assertEqual(rec["number"], 1)
         self.assertEqual(rec["phone"], "13800138000")
+        self.assertEqual(rec["name"], "访客")
+        self.assertEqual(rec["type"], 2)
         self.assertEqual(rec["end_time"], 1783341252 + 86400)
 
     def test_skips_deleted(self) -> None:
@@ -174,11 +178,14 @@ class ParseAuthorizationItemTests(unittest.TestCase):
         assert rec is not None
         self.assertEqual(rec["password"], "496146")
 
-    def test_skips_missing_fields(self) -> None:
+    def test_requires_authorized_id_but_not_password(self) -> None:
         self.assertIsNone(temp_password.parse_authorization_item({}))
-        self.assertIsNone(
-            temp_password.parse_authorization_item({"authorizedId": 1})
+        rec = temp_password.parse_authorization_item(
+            {"authorizedId": 1, "number": 1}
         )
+        assert rec is not None
+        self.assertEqual(rec["password"], "")
+        self.assertEqual(rec["authorized_id"], 1)
 
 
 if __name__ == "__main__":

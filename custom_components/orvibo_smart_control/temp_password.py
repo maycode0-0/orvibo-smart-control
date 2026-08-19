@@ -60,21 +60,26 @@ def parse_authorization_item(item: Mapping[str, Any]) -> Optional[dict[str, Any]
     status = item.get("authorizeStatus")
     if status not in (None, 0, "0"):
         return None
-    password = item.get("password") or ""
     authorized_id = item.get("authorizedId")
-    if not password or authorized_id is None:
+    if authorized_id is None:
         return None
+    try:
+        authorization_type = int(item.get("type") or 0)
+    except (TypeError, ValueError):
+        authorization_type = 0
     return {
-        "password": str(password),
+        # The cloud may omit the password from list responses. An
+        # authorization is still manageable by its server-side ID.
+        "password": str(item.get("password") or ""),
         "authorized_id": int(authorized_id),
         "authorized_unlock_id": item.get("authorizedUnlockId") or "",
-        "type": 0,  # 服务器列表无 type 字段（下发响应才有），保留字段占位
+        "type": authorization_type,
         "start_time": int(item.get("startTime") or 0),
         "end_time": int(item.get("endTime") or 0),
         "number": int(item.get("number") or 0),
         "unlock_num": int(item.get("unlockNum") or 0),
         "phone": item.get("phone") or "",
-        "name": "",
+        "name": item.get("userName") or item.get("name") or "",
         "authorize_status": item.get("authorizeStatus"),
     }
 

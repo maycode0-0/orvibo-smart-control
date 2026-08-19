@@ -228,13 +228,25 @@ actions:
 
 ## 内置门锁卡片
 
-集成在前端注册 `custom:orvibo-smart-control-door-lock-card`。不填写 `device_id` 时卡片会
-尝试选择第一把门锁；多配置项或多门锁环境应明确配置：
+集成在前端注册两个卡片：
+
+- `custom:orvibo-smart-control-door-lock-card`：门锁状态、事件图片和临时密码管理；
+- `custom:orvibo-smart-control-temp-password-card`：只显示临时密码的创建、授权列表和撤销操作。
+
+专用临时密码卡片配置：
+
+```yaml
+type: custom:orvibo-smart-control-temp-password-card
+device_id: w-example-door-lock-id
+```
+
+总览卡片配置：
 
 ```yaml
 type: custom:orvibo-smart-control-door-lock-card
 device_id: w-example-door-lock-id
 ```
 
-卡片调用的仍是上文服务，权限取决于当前 Home Assistant 用户。不要把门锁仪表盘匿名
-暴露到公网。
+不填写 `device_id` 时卡片会尝试选择实体最完整的一把门锁；多配置项或多门锁环境应明确
+配置。卡片调用的仍是上文服务，权限取决于当前 Home Assistant 用户。授权列表不会返回
+或重复显示密码明文；新密码只在创建成功后显示一次。不要把门锁仪表盘匿名暴露到公网。

@@ -111,6 +111,27 @@ class TempPasswordManagerTests(unittest.TestCase):
 
         self.assertNotIn("password", result["lock"][0])
 
+    def test_list_keeps_authorization_when_server_omits_password(self) -> None:
+        https = FakeHttps(
+            {
+                "authorizedUnlock": [
+                    {
+                        "deviceId": "lock",
+                        "authorizedId": 8,
+                        "number": 1,
+                        "unlockNum": 0,
+                        "authorizeStatus": 0,
+                    }
+                ]
+            }
+        )
+        manager, _ = self.make_manager(https=https)
+
+        result = asyncio.run(manager.list("lock"))
+
+        self.assertEqual(result["lock"][0]["authorized_id"], 8)
+        self.assertNotIn("password", result["lock"][0])
+
     def test_grant_returns_password_but_public_event_does_not(self) -> None:
         ssl = FakeSsl()
         manager, updates = self.make_manager(
@@ -151,7 +172,8 @@ class TempPasswordManagerTests(unittest.TestCase):
 
         records = asyncio.run(manager.fetch_server_records())
 
-        self.assertEqual(records[0]["name"], "")
+        self.assertEqual(records[0]["name"], "访客")
+        self.assertEqual(records[0]["type"], 2)
         self.assertEqual(manager._records["lock"][0]["name"], "访客")
         self.assertEqual(manager._records["lock"][0]["type"], 2)
 

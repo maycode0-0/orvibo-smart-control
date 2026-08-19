@@ -145,9 +145,16 @@ MD5 摘要；配置项不保存明文，但该摘要仍可直接用于认证，�
 - `orvibo_smart_control_lock_event` 事件，用于开锁、门铃、撬锁和门未关等自动化；
 - 门锁事件图片签名、H.264 录像归档及 Home Assistant 媒体浏览器索引；
 - 临时密码下发、查询、撤销和每 6 小时的过期回收；
-- 内置 `custom:orvibo-smart-control-door-lock-card` Lovelace 卡片。
+- 内置门锁总览卡片和独立的临时密码管理卡片。
 
-卡片最小配置：
+只管理临时密码时，添加以下 Lovelace 卡片：
+
+```yaml
+type: custom:orvibo-smart-control-temp-password-card
+device_id: w-example-door-lock-id
+```
+
+需要同时查看门锁状态、事件和临时密码时使用总览卡片：
 
 ```yaml
 type: custom:orvibo-smart-control-door-lock-card

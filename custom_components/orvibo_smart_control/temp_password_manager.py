@@ -212,6 +212,7 @@ class TempPasswordManager:
 
         previous = self._records
         self._records = {}
+        merged_records = []
         for record in records:
             device_id = record["device_id"]
             existing = next(
@@ -225,10 +226,11 @@ class TempPasswordManager:
             )
             merged = dict(record)
             if existing:
-                merged["name"] = existing.get("name") or ""
-                merged["type"] = existing.get("type") or 0
+                merged["name"] = existing.get("name") or merged.get("name") or ""
+                merged["type"] = existing.get("type") or merged.get("type") or 0
             self._records.setdefault(device_id, []).append(merged)
-        return records
+            merged_records.append(merged)
+        return merged_records
 
     def state(self, device_id: str) -> Optional[dict[str, Any]]:
         active = [
