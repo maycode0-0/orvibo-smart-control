@@ -76,7 +76,6 @@ def _load_sensor_module():
             f"{package_name}.const",
             DOMAIN="orvibo_smart_control",
             MANUFACTURER="ORVIBO",
-            DEVICE_TYPE_SENSOR="sensor",
         ),
         f"{package_name}.coordinator": _module(
             f"{package_name}.coordinator",
@@ -178,6 +177,36 @@ class TransportSensorTests(unittest.TestCase):
         coordinator.transport_mode = coordinator.mode_type.LAN_ONLY
         self.assertEqual(by_device["light-1"].native_value, "lan")
         self.assertEqual(by_device["clothes-1"].native_value, "unavailable")
+
+    def test_setup_adds_lock_sensors_for_p20_raw_type(self):
+        coordinator = _Coordinator(self.module)
+        coordinator.devices = {
+            "lock-1": {
+                "device_id": "lock-1",
+                "device_name": "P20",
+                "device_type": "unknown",
+                "device_type_raw": 107,
+                "uid": "lock-uid",
+            }
+        }
+        hass = SimpleNamespace(
+            data={"orvibo_smart_control": {"entry-1": coordinator}}
+        )
+        entry = SimpleNamespace(entry_id="entry-1", options={})
+        entities = []
+
+        asyncio.run(
+            self.module.async_setup_entry(hass, entry, entities.extend)
+        )
+
+        expected_types = (
+            self.module.OrviboDoorLockDryBatterySensor,
+            self.module.OrviboDoorLockLithiumBatterySensor,
+            self.module.OrviboDoorLockStateSensor,
+            self.module.OrviboDoorLockUnlockSensor,
+        )
+        created_types = {type(entity) for entity in entities}
+        self.assertTrue(set(expected_types).issubset(created_types))
 
 
 if __name__ == "__main__":

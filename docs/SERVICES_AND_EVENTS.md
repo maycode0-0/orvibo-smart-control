@@ -230,7 +230,7 @@ actions:
 
 集成在前端注册两个卡片：
 
-- `custom:orvibo-smart-control-door-lock-card`：门锁状态、事件图片和临时密码管理；
+- `custom:orvibo-smart-control-door-lock-card`：门锁状态、自动保存的历史截图和临时密码管理；
 - `custom:orvibo-smart-control-temp-password-card`：只显示临时密码的创建、授权列表和撤销操作。
 
 专用临时密码卡片配置：
@@ -245,7 +245,15 @@ device_id: w-example-door-lock-id
 ```yaml
 type: custom:orvibo-smart-control-door-lock-card
 device_id: w-example-door-lock-id
+history_limit: 24
 ```
+
+`history_limit` 可选，用于设置卡片展示的历史截图数量（`1..100`，默认 `12`）。
+
+门锁事件截图会自动保存到 Home Assistant 的 `config/media/orvibo_smart_control/<设备>/` 目录，
+默认保留 7 天。卡片中的“历史截图（自动保存）”区域可刷新列表并点击缩略图查看大图；
+需要更长保留时间时，可调用 `cleanup_history` 服务前先在自动化中按需管理文件，或调整该服务
+的 `keep_days` 参数。也可以直接调用 `list_events` 获取每张截图的 `media_id`。
 
 不填写 `device_id` 时卡片会尝试选择实体最完整的一把门锁；多配置项或多门锁环境应明确
 配置。卡片调用的仍是上文服务，权限取决于当前 Home Assistant 用户。授权列表不会返回

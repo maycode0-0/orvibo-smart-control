@@ -9,6 +9,7 @@
  * 用法（Lovelace 卡片）：
  *   type: custom:orvibo-smart-control-door-lock-card
  *   device_id: "<your-door-lock-device-id>"   # 可选，留空自动选第一把门锁
+ *   history_limit: 12                         # 可选，卡片显示的历史截图数量
  *
  * 仅显示临时密码管理：
  *   type: custom:orvibo-smart-control-temp-password-card
@@ -16,7 +17,6 @@
  */
 
 const ORVIBO_PREFIX = "orvibo_smart_control_";
-const CARD_VERSION = "0.2.0";
 
 class OrviboSmartControlDoorLockCard extends HTMLElement {
   constructor() {
@@ -49,6 +49,8 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     this._events = [];
     this._eventsLoaded = false;
     this._eventsLoading = false;
+    this._eventsError = "";
+    this._historyLimit = 12;
     this._eventsLastCam = "";
     this._lastReloadAt = 0;
     this._lightboxUrl = null;
@@ -69,6 +71,14 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     this._records = null;
     this._lastListAt = 0;
     this._listLoaded = false;
+    this._events = [];
+    this._eventsLoaded = false;
+    this._eventsLoading = false;
+    this._eventsError = "";
+    const requestedHistoryLimit = Number(this._config.history_limit);
+    this._historyLimit = Number.isInteger(requestedHistoryLimit)
+      ? Math.min(100, Math.max(1, requestedHistoryLimit))
+      : 12;
     this._loadEntities();
   }
 
@@ -90,7 +100,7 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
   }
 
   getCardSize() {
-    return this._config.temp_password_only ? 5 : 6;
+    return this._config.temp_password_only ? 5 : 8;
   }
 
   async _loadEntities() {
@@ -185,6 +195,57 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     return st && st.attributes ? st.attributes[key] : null;
   }
 
+  _lockState() {
+    const entityId = this._entities.lock_state;
+    const state = this._state(entityId);
+    if (
+      state &&
+      state !== "unknown" &&
+      state !== "unavailable"
+    ) {
+      return state;
+    }
+    const doorOpen = this._attr(entityId, "door_open");
+    const insideLocked = this._attr(entityId, "inside_locked");
+    const locked = this._attr(entityId, "locked");
+    if (doorOpen === true && locked === true) return "abnormal";
+    if (doorOpen === true) return "unlocked";
+    if (insideLocked === true) return "inside_locked";
+    if (locked === true) return "locked";
+    if (locked === false) return "unlocked";
+    return "unknown";
+  }
+
+  _batterySummary() {
+    const batteries = [
+      {
+        label: "锂电池",
+        state: this._state(this._entities.lithium_battery),
+        installed: this._attr(this._entities.lithium_battery, "is_setup"),
+      },
+      {
+        label: "干电池",
+        state: this._state(this._entities.dry_battery),
+        installed: this._attr(this._entities.dry_battery, "is_setup"),
+      },
+    ];
+    const hasLevel = ({ state }) =>
+      state != null &&
+      state !== "" &&
+      state !== "unknown" &&
+      state !== "unavailable" &&
+      Number.isFinite(Number(state));
+    const battery =
+      batteries.find((item) => item.installed !== false && hasLevel(item)) ||
+      batteries.find((item) => item.installed === true) ||
+      batteries.find((item) => item.installed !== false && item.state != null);
+    if (!battery) return { label: "电池", value: "未知" };
+    return {
+      label: battery.label,
+      value: hasLevel(battery) ? `${Number(battery.state)}%` : "未知",
+    };
+  }
+
   _fmtTs(ts) {
     if (!ts) return "-";
     const d = new Date(Number(ts) * 1000);
@@ -243,21 +304,12 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
       return;
     }
     const e = this._entities;
-    const lockState = this._state(e.lock_state) || "-";
+    const lockState = this._lockState();
     const door = this._state(e.door);
-    const dryBattery = this._state(e.dry_battery);
-    const lithiumBattery = this._state(e.lithium_battery);
+    const battery = this._batterySummary();
     const tempOnly = this._config.temp_password_only === true;
-    const lockStateLabel = { locked: "已上锁", unlocked: "未上锁", inside_locked: "门内已反锁", abnormal: "异常" }[lockState] || lockState;
+    const lockStateLabel = { locked: "已上锁", unlocked: "未上锁", inside_locked: "门内已反锁", abnormal: "异常", unknown: "未知" }[lockState] || "未知";
     const doorLabel = door === "on" ? "开" : door === "off" ? "关" : (door || "-");
-    const batteryLabel =
-      dryBattery != null && dryBattery !== "unknown"
-        ? `${dryBattery}%`
-        : "-";
-    const lithiumLabel =
-      lithiumBattery != null && lithiumBattery !== "unknown"
-        ? `${lithiumBattery}%`
-        : "-";
     const cameraEntity = e.camera;
     const cameraState = cameraEntity ? this._hass.states[cameraEntity] : null;
     const camKey = cameraState
@@ -281,24 +333,18 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
         </div>
         ${tempOnly ? "" : `<div class="stats">
           <div class="stat"><span class="stat-label">门磁</span><span class="stat-value">${this._escapeHtml(doorLabel)}</span></div>
-          <div class="stat"><span class="stat-label">干电池</span><span class="stat-value">${this._escapeHtml(batteryLabel)}</span></div>
-          <div class="stat"><span class="stat-label">锂电池</span><span class="stat-value">${this._escapeHtml(lithiumLabel)}</span></div>
+          <div class="stat"><span class="stat-label">${this._escapeHtml(battery.label)}</span><span class="stat-value">${this._escapeHtml(battery.value)}</span></div>
         </div>`}
-        ${
-          !tempOnly && this._events.length
-            ? `<div class="events">${this._events
-                .slice(0, 8)
-                .map(
-                  (ev, idx) => `
-            <div class="ev-item" data-idx="${idx}">
-              <img src="${ev.url}" alt="${this._eventLabel(ev.kind)}" loading="lazy" />
-              <div class="ev-label">${this._eventLabel(ev.kind)}</div>
-              <div class="ev-time">${this._fmtTs(ev.time)}</div>
-            </div>`
-                )
-                .join("")}</div>`
-            : ""
-        }
+        ${!tempOnly ? `
+          <div class="section history-section">
+            <div class="section-title history-heading">
+              <span class="section-label"><ha-icon icon="mdi:image-multiple-outline"></ha-icon>历史截图（自动保存）</span>
+              <button class="icon-button" id="ov-events-refresh" title="刷新历史截图" aria-label="刷新历史截图" ${this._eventsLoading ? "disabled" : ""}>
+                <ha-icon icon="mdi:refresh"></ha-icon>
+              </button>
+            </div>
+            ${this._eventsMarkup()}
+          </div>` : ""}
         ${
           !tempOnly && this._lightboxUrl
             ? `<div class="lightbox" id="ov-lightbox"><img src="${this._lightboxUrl}" alt="事件大图" /></div>`
@@ -348,7 +394,6 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
           </div>
         </div>
         ${this._notice ? `<div class="message ${this._noticeKind === "error" ? "error" : "success"}" role="status" aria-live="polite">${this._escapeHtml(this._notice)}</div>` : ""}
-        <div class="ver">${tempOnly ? "orvibo-smart-control-temp-password-card" : "orvibo-smart-control-door-lock-card"} v${CARD_VERSION}</div>
       </ha-card>
       <style>
         ha-card { padding: 16px; font-size: 14px; }
@@ -370,7 +415,6 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
         .ev-time { font-size: 10px; color: var(--secondary-text-color); opacity: 0.8; }
         .lightbox { position: fixed; inset: 0; background: rgba(0,0,0,0.82); display: flex; align-items: center; justify-content: center; z-index: 9999; cursor: zoom-out; }
         .lightbox img { max-width: 92vw; max-height: 92vh; border-radius: 8px; }
-        .ver { margin-top: 8px; font-size: 10px; color: var(--secondary-text-color); opacity: 0.6; text-align: right; }
         .section { border-top: 1px solid var(--divider-color); padding-top: 12px; margin-top: 12px; }
         .section.first { border-top: 0; margin-top: 0; }
         .section-title { min-height: 36px; font-weight: 600; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
@@ -395,6 +439,8 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
         .meta { color: var(--secondary-text-color); font-size: 12px; line-height: 1.45; overflow-wrap: anywhere; }
         .tp-item.expired { opacity: 0.7; }
         .empty { padding: 18px 0; color: var(--secondary-text-color); text-align: center; }
+        .history-heading { margin-bottom: 4px; }
+        .history-section .message { margin-top: 4px; }
         .icon-button { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; flex: 0 0 36px; padding: 0; border: 0; border-radius: 50%; color: var(--primary-text-color); background: transparent; cursor: pointer; }
         .icon-button:hover { background: var(--secondary-background-color); }
         .icon-button.danger { color: var(--error-color, #db4437); }
@@ -404,7 +450,7 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
         .message.error { color: var(--error-color, #db4437); background: color-mix(in srgb, var(--error-color, #db4437) 8%, var(--card-background-color)); }
         @media (max-width: 480px) {
           .form label { grid-template-columns: 1fr; gap: 4px; }
-          .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+          .stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
           .stat { min-width: 0; padding: 8px; }
         }
       </style>
@@ -437,6 +483,10 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
       this._listLoaded = false;
       this._loadList();
     });
+    const eventsRefresh = root.querySelector("#ov-events-refresh");
+    if (eventsRefresh) {
+      eventsRefresh.addEventListener("click", () => this._loadEvents(true));
+    }
     root.querySelectorAll("button[data-aid]").forEach((button) => {
       button.addEventListener("click", () => {
         this._revoke(Number(button.getAttribute("data-aid")));
@@ -631,9 +681,36 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     return labels[kind] || kind || "事件";
   }
 
-  async _loadEvents() {
+  _eventsMarkup() {
+    if (this._eventsLoading && !this._events.length) {
+      return "<div class='empty'>正在加载历史截图...</div>";
+    }
+    if (this._eventsError) {
+      return `<div class="message error">${this._escapeHtml(this._eventsError)}</div>`;
+    }
+    if (!this._events.length) {
+      return "<div class='empty'>暂无历史截图</div>";
+    }
+    return `<div class="events">${this._events
+      .slice(0, this._historyLimit)
+      .map(
+        (ev, idx) => `
+          <div class="ev-item" data-idx="${idx}">
+            <img src="${this._escapeHtml(ev.url)}" alt="${this._escapeHtml(this._eventLabel(ev.kind))}" loading="lazy" />
+            <div class="ev-label">${this._escapeHtml(this._eventLabel(ev.kind))}</div>
+            <div class="ev-time">${this._escapeHtml(this._fmtTs(ev.time))}</div>
+          </div>`
+      )
+      .join("")}</div>`;
+  }
+
+  async _loadEvents(force = false) {
     if (!this._hass || !this._deviceId || this._eventsLoading) return;
+    if (force) {
+      this._eventsLoaded = false;
+    }
     this._eventsLoading = true;
+    this._eventsError = "";
     try {
       const result = await this._hass.callWS({
         type: "call_service",
@@ -658,13 +735,14 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
           console.warn("ORVIBO card: 解析事件图片失败", ev.media_id, e);
         }
         if (url) {
-          images.push({ kind: ev.kind, time: ev.time, url });
+          images.push({ kind: ev.kind, time: ev.time, url, mediaId: ev.media_id });
         }
       }
       this._events = images;
       this._eventsLoaded = true;
     } catch (e) {
       console.error("ORVIBO card: 加载事件历史失败", e);
+      this._eventsError = e.message || String(e);
       this._eventsLoaded = true;
     }
     this._eventsLoading = false;

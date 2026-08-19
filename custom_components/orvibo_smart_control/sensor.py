@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER, DEVICE_TYPE_SENSOR
+from .const import DOMAIN, MANUFACTURER
 from .capabilities import (
     ControlChannel,
     TransportPath,
@@ -48,8 +48,6 @@ async def async_setup_entry(
         capability = capability_for(device)
         if capability.platforms:
             entities.append(OrviboTransportPathSensor(coordinator, device))
-        if device.get("device_type") != DEVICE_TYPE_SENSOR:
-            continue
         category = classify_device(device)
         if category == DeviceCategory.MOTION_SENSOR:
             entities.append(OrviboMotionBatterySensor(coordinator, device))

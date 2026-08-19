@@ -130,7 +130,10 @@ class LockMediaManager:
         self._snapshot_pending.add(dedup_key)
         camera = self._cameras.get(device_id)
         cos = self.cos
-        if camera is None or cos is None:
+        # History persistence must not depend on the camera entity being loaded.
+        # A device can be deselected from the camera platform while media events
+        # still arrive through the coordinator.
+        if cos is None:
             self._snapshot_pending.discard(dedup_key)
             return
         image: Optional[bytes] = None
@@ -180,7 +183,8 @@ class LockMediaManager:
             )
         except OSError as error:
             _LOGGER.warning("截图落盘失败: %s", error)
-        await camera.async_set_image(image)
+        if camera is not None:
+            await camera.async_set_image(image)
 
     def _schedule_video_archive(
         self,

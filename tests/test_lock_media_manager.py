@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import importlib
+import asyncio
 from pathlib import Path
 import sys
+import tempfile
 import types
 import unittest
 
@@ -20,19 +22,27 @@ def _load_module():
 
 
 class FakeConfig:
+    def __init__(self, root="test-media"):
+        self.root = root
+
     def path(self, name):
-        return str(Path("test-media"))
+        return str(Path(self.root))
 
 
 class FakeHass:
     config = FakeConfig()
 
-    def __init__(self):
+    def __init__(self, media_root=None):
+        if media_root is not None:
+            self.config = FakeConfig(media_root)
         self.scheduled = 0
 
     def async_create_task(self, coroutine):
         self.scheduled += 1
         coroutine.close()
+
+    async def async_add_executor_job(self, func, *args):
+        return func(*args)
 
 
 class FakeCos:
@@ -41,6 +51,9 @@ class FakeCos:
 
     def cached_credentials(self, device_id):
         return object()
+
+    async def signed_url(self, device_id, uid, key):
+        return f"https://example.invalid/{key}"
 
 
 class LockMediaManagerTests(unittest.TestCase):
@@ -74,6 +87,32 @@ class LockMediaManagerTests(unittest.TestCase):
         )
 
         self.assertEqual(result, {"error": "设备不存在或不是门锁"})
+
+    def test_snapshot_is_saved_without_camera_entity(self) -> None:
+        async def no_sleep(_delay):
+            return None
+
+        with tempfile.TemporaryDirectory() as td:
+            hass = FakeHass(td)
+            manager = self.module.LockMediaManager(
+                hass, {"lock": {"uid": "uid"}}, b"salt"
+            )
+            manager.cos = FakeCos()
+            original_download = self.module._download_bytes
+            original_sleep = self.module.asyncio.sleep
+            self.module._download_bytes = lambda url: b"jpg-data"
+            self.module.asyncio.sleep = no_sleep
+            try:
+                asyncio.run(
+                    manager._update_snapshot(
+                        "lock", "uid", "picture.jpg", "ring", 1785672298
+                    )
+                )
+            finally:
+                self.module._download_bytes = original_download
+                self.module.asyncio.sleep = original_sleep
+            saved = Path(td) / "orvibo_smart_control" / "lock" / "ring_1785672298.jpg"
+            self.assertEqual(saved.read_bytes(), b"jpg-data")
 
 
 if __name__ == "__main__":
