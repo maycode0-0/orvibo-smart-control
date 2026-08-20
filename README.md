@@ -7,10 +7,6 @@ ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。�
 网关局域网直连与 ORVIBO 云端协议放在同一条设备、状态和控制链路中：能在 LAN
 完成的操作优先本地执行，无法本地接管的设备或失败请求由云端承接。
 
-> 独立项目声明：仓库为 `maycode0-0/orvibo-smart-control`，集成域为
-> `orvibo_smart_control`，维护者为 `maycode0-0`。本项目不会复用其他 ORVIBO
-> 自定义集成的配置条目、服务域或实体唯一 ID。
-
 ## 通道策略
 
 默认的 `LAN 与云端结合` 模式会同时维护本地和云端能力，但每次控制只选择一个起始通道：
