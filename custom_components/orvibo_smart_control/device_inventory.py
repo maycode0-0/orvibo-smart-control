@@ -107,6 +107,7 @@ class DeviceInventory:
                     state,
                     {
                         "properties": device.get("properties", {}),
+                        "subDeviceType": device.get("sub_device_type"),
                         "value1": device.get("value1"),
                         "value2": device.get("value2"),
                         "value3": device.get("value3"),

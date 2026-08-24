@@ -99,6 +99,25 @@ class DeviceInventoryTests(unittest.TestCase):
         self.assertIn("dry_battery_level", states["lock"])
         self.assertEqual(states["rack"]["motor_state"], "stop")
 
+    def test_initialize_honors_inverted_light_subdevice_type(self) -> None:
+        inventory, _devices, states, _ = self.make_inventory()
+
+        inventory.initialize(
+            [
+                {
+                    "device_id": "light",
+                    "device_type_raw": 38,
+                    "sub_device_type": -2,
+                    "value1": 1,
+                    "value2": 26,
+                    "value3": 2700,
+                }
+            ]
+        )
+
+        self.assertFalse(states["light"]["state"])
+        self.assertEqual(states["light"]["brightness"], 26)
+
     def test_merge_cloud_removes_hidden_and_merges_status(self) -> None:
         inventory, devices, states, removed = self.make_inventory()
         devices["old"] = {"device_id": "old"}
