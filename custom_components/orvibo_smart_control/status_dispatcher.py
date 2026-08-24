@@ -164,7 +164,11 @@ class StatusUpdateDispatcher:
             if parser_category is None:
                 self._apply_generic(candidate, raw_status)
             else:
-                self._apply_parser(parser_category, candidate, raw_status)
+                parser_status = raw_status
+                if sub_type is not None and raw_status.get("subDeviceType") is None:
+                    parser_status = dict(raw_status)
+                    parser_status["subDeviceType"] = sub_type
+                self._apply_parser(parser_category, candidate, parser_status)
 
         self._state_store.merge(
             device_id,

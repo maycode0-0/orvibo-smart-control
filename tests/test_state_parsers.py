@@ -100,13 +100,20 @@ class StateParserTests(unittest.TestCase):
 
     def test_dim_color_light_converts_mireds_and_clamps_kelvin(self) -> None:
         patch = self.light.parse_dim_color_light(
-            {}, {"value1": "1", "value2": "128", "value3": "400"}
+            {}, {"value1": "0", "value2": "128", "value3": "400"}
         )
 
         self.assertEqual(
             patch.values,
             {"state": True, "brightness": 128, "color_temp": 2700},
         )
+
+    def test_dim_color_light_uses_active_low_power_state(self) -> None:
+        on = self.light.parse_dim_color_light({}, {"value1": 0})
+        off = self.light.parse_dim_color_light({}, {"value1": 1})
+
+        self.assertTrue(on.values["state"])
+        self.assertFalse(off.values["state"])
 
     def test_dim_color_light_accepts_property_brightness_percent_dict(self) -> None:
         patch = self.light.parse_dim_color_light(
@@ -169,12 +176,14 @@ class StateParserTests(unittest.TestCase):
 
         self.assertEqual(patch.values, {"color_temp": 6500})
 
-    def test_zigbee_dimmer_honors_inverted_subdevice(self) -> None:
-        patch = self.light.parse_zigbee_dimmable_light(
-            {}, {"value1": 0, "value2": 255, "subDeviceType": "-2"}
+    def test_zigbee_dimmer_uses_active_low_power_state(self) -> None:
+        on = self.light.parse_zigbee_dimmable_light(
+            {}, {"value1": 0, "value2": 255}
         )
+        off = self.light.parse_zigbee_dimmable_light({}, {"value1": 1})
 
-        self.assertEqual(patch.values, {"state": True, "brightness": 255})
+        self.assertEqual(on.values, {"state": True, "brightness": 255})
+        self.assertFalse(off.values["state"])
 
     def test_curtain_preserves_state_at_partial_position(self) -> None:
         patch = self.cover.parse_curtain(

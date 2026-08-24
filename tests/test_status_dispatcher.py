@@ -177,6 +177,18 @@ class StatusDispatcherTests(unittest.TestCase):
         self.assertEqual(calls["updated"], 1)
         self.assertEqual(updates["lamp"], 123.0)
 
+    def test_packet_uses_stored_subdevice_type_when_missing(self) -> None:
+        devices = {"switch": {"device_type_raw": 135, "sub_device_type": -2}}
+        states = {"switch": {"state": False}}
+        dispatcher, _, _, _ = self.make_dispatcher(devices, states)
+
+        dispatcher.dispatch(
+            "switch",
+            {"subDeviceType": None, "value1": 1},
+        )
+
+        self.assertFalse(states["switch"]["state"])
+
     def test_motion_and_lock_callbacks_remain_coordinator_owned(self) -> None:
         devices = {
             "motion": {"device_type_raw": 26},

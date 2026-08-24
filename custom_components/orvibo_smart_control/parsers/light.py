@@ -33,7 +33,7 @@ def parse_light(
 def parse_dim_color_light(
     current_state: Mapping[str, Any], raw_status: Mapping[str, Any]
 ) -> StatePatch:
-    """Parse the legacy value-based dimmable, tunable-white light."""
+    """Parse the active-low legacy dimmable, tunable-white light."""
 
     props = raw_status.get("properties", {})
     brightness = raw_status.get("value2")
@@ -88,9 +88,8 @@ def parse_dim_color_light(
     if isinstance(value1, dict):
         value1 = value1.get("value")
     if value1 is not None:
-        sub_device_type = _subdevice_type(raw_status)
         try:
-            state = int(value1) == (0 if sub_device_type == -2 else 1)
+            state = int(value1) == 0
         except (TypeError, ValueError):
             state = current_state.get("state", False)
     else:
@@ -164,15 +163,14 @@ def parse_dimmable_light(
 def parse_zigbee_dimmable_light(
     current_state: Mapping[str, Any], raw_status: Mapping[str, Any]
 ) -> StatePatch:
-    """Parse a value-based 0-10V dimmable light."""
+    """Parse an active-low value-based 0-10V dimmable light."""
 
     updates: dict[str, Any] = {}
     value1 = raw_status.get("value1")
     brightness = raw_status.get("value2")
 
     if value1 is not None:
-        sub_device_type = _subdevice_type(raw_status)
-        updates["state"] = int(value1) == (0 if sub_device_type == -2 else 1)
+        updates["state"] = int(value1) == 0
     if brightness is not None:
         brightness = min(255, max(0, int(brightness)))
         updates["brightness"] = brightness
