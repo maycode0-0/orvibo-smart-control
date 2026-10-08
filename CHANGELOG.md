@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- 移除 manifest 中重复声明的 Home Assistant 内置依赖 `aiohttp` 和 `cryptography`，修复 hassfest requirements 校验失败。
 - 修复云端 TLS 断线后仍被标记为已连接、监听停止却不重新登录的问题；缺失 reader 和临时登录失败也会按重连上限继续恢复。
 - 修复云端指令发送失败或 writer 丢失时仍向上层返回成功的问题；发送等待限制为 10 秒，失败会释放待响应请求并关闭失效连接，不自动重放结果未知的控制指令。
 
