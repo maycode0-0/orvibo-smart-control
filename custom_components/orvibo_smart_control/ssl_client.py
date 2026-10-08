@@ -25,6 +25,7 @@ class SSLClient:
     _initial_keys = {}
 
     RECONNECT_TIMEOUT = 30
+    PACKET_WRITE_TIMEOUT = 10.0
 
     def __init__(
         self,
@@ -155,7 +156,9 @@ class SSLClient:
             _LOGGER.error("SSL连接失败: %s", e)
             return False
 
-    async def _disconnect(self):
+    async def _disconnect(self, *, permanent: bool = True):
+        self.connected = False
+        self._closed = permanent
         current_task = asyncio.current_task()
         for task in (self._listening_task, self._heartbeat_task):
             if task is None or task.done() or task is current_task:
@@ -179,7 +182,6 @@ class SSLClient:
             await self.transport.close()
         self.session_id = None
         self.session_key = None
-        self._closed = True
         self._pending_requests.cancel_all()
         _LOGGER.debug("SSL连接已断开")
 
@@ -188,7 +190,7 @@ class SSLClient:
             if self.connected:
                 return True
             try:
-                await self._disconnect()
+                await self._disconnect(permanent=False)
             except Exception as e:
                 _LOGGER.error("断开连接异常: %s", e)
 
@@ -262,7 +264,7 @@ class SSLClient:
                         return True
                     else:
                         _LOGGER.error("SSL登录失败，断开连接等待重试")
-                        await self._disconnect()
+                        await self._disconnect(permanent=False)
                         raise ConnectionError("SSL登录失败")
             except Exception as e:
                 _LOGGER.debug(f"连接/登录重试 {retry+1}/{SSL_MAX_RECONNECT_ATTEMPTS}: {e}")
@@ -272,6 +274,8 @@ class SSLClient:
     async def _send_packet(self, data: dict, key: bytes):
         control_key = None
         try:
+            if not self.writer or self.writer.is_closing():
+                raise ConnectionError("SSL stream is not connected")
             device_id = str(data.get("deviceId") or "")
             if data.get("cmd") == CMD_CONTROL and device_id:
                 control_key = f"control:{device_id}"
@@ -288,18 +292,26 @@ class SSLClient:
                 session_id=self.session_id.encode("utf-8"),
                 payload=data
             )
-            if not self.writer:
-                await self._reconnect()
-                return
-
-            await self.transport.write(ciphertext)
+            await asyncio.wait_for(
+                self.transport.write(ciphertext), timeout=self.PACKET_WRITE_TIMEOUT
+            )
             _LOGGER.debug(f"发送数据包 cmd={data.get('cmd')}, deviceId={data.get('deviceId')}")
         except Exception as e:
             if control_key is not None:
                 self._pending_requests.resolve(control_key, None)
-            _LOGGER.error("发送数据包失败: %s", e)
-            if "lost" in str(e) or "close" in str(e):
-                await self._reconnect()
+            if isinstance(e, (OSError, asyncio.TimeoutError)):
+                self.connected = False
+                self._pending_requests.cancel_all()
+                # Wake the reader so its recovery loop can restore the session.
+                if self.writer is not None:
+                    try:
+                        self.writer.close()
+                    except Exception:
+                        _LOGGER.debug("关闭失效的 SSL stream 失败")
+            _LOGGER.error("发送数据包失败: %s", type(e).__name__)
+            # A failed write has an unknown outcome; do not replay the command
+            # or allow send_control_* to return a false success.
+            raise ConnectionError("云端指令发送失败，请稍后重试") from e
 
     async def _send_hello(self):
         payload = HomemateJsonData.ssl_get_session()
@@ -974,13 +986,12 @@ class SSLClient:
                     _LOGGER.debug("reader 已丢失，跳出监听循环")
                     break
                 await asyncio.sleep(1)
+        self.connected = False
+        self._pending_requests.cancel_all()
         _LOGGER.debug("SSL监听循环结束，开始重连循环...")
         reconnect_count = 0
         max_reconnect = 5
         while not self._closed and reconnect_count < max_reconnect:
-            if self.reader is None:
-                _LOGGER.debug("reader 已丢失，放弃重连")
-                return
             try:
                 await self._reconnect()
                 _LOGGER.debug("SSL重连成功，继续监听")
