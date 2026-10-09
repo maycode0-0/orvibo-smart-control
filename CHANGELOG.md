@@ -2,11 +2,20 @@
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-09
+
 ### Fixed
 
+- 统一 HACS 发布入口：每次 `main` 推送通过验证后按 manifest 版本补建 tag，并重试缺失的 Release/ZIP；支持注解标签，按标签提交打包，上传完成后才公开新 Release。
 - 移除 manifest 中重复声明的 Home Assistant 内置依赖 `aiohttp` 和 `cryptography`，修复 hassfest requirements 校验失败。
 - 修复云端 TLS 断线后仍被标记为已连接、监听停止却不重新登录的问题；缺失 reader 和临时登录失败也会按重连上限继续恢复。
 - 修复云端指令发送失败或 writer 丢失时仍向上层返回成功的问题；发送等待限制为 10 秒，失败会释放待响应请求并关闭失效连接，不自动重放结果未知的控制指令。
+
+### Verification
+
+- 完整单元测试：409 项，1 项跳过。
+- 发布工作流回归测试：18 项通过，覆盖 tag 创建、失败补发、注解标签和 ZIP 上传恢复。
+- 工作流 YAML、Python 编译、JavaScript 语法和 Git 补丁格式检查通过。
 
 ## [0.2.0] - 2026-08-24
 

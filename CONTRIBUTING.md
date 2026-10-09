@@ -264,11 +264,16 @@ hassfest。测试 fixture 必须最小化、稳定且不可逆脱敏。
 不要在普通 PR 中静默修改 manifest 版本，也不要重写已经发布的 CHANGELOG 历史。文档中的
 项目名、域名、仓库 owner 和卡片名必须在 manifest、HACS 元数据、代码和文档中保持一致。
 
-合并到 `main` 后，`.github/workflows/orvibo-smart-control-validate.yml` 会比较当前提交与
-上一个提交的 `manifest.json` 版本值。只有版本实际变化且单元测试、HACS validation、
-hassfest 全部通过时，CI 才会自动创建 `v<version>` 标签、构建
-`orvibo-smart-control.zip` 并发布 GitHub Release。只修改 manifest 的其他字段、普通代码提交
-或 PR 不会自动发布；版本号必须使用稳定的 `0.x.y` 格式。
+每次推送到 `main`，`.github/workflows/hacs-release.yml` 都会在单元测试、HACS validation、
+hassfest 全部通过后，根据 `manifest.json` 中的稳定 `0.x.y` 版本检查并补建 `v<version>`
+标签，然后构建 `orvibo-smart-control.zip` 并发布 GitHub Release。发布不再依赖与上一个提交
+比较版本，因此上次失败后，同版本的后续推送也能补齐缺失的标签、Release 或 ZIP。
+
+已有标签保持原来的提交，缺失 ZIP 时从标签对应的代码打包；已有完整正式 Release 时直接
+跳过。新 Release 先保存为草稿，ZIP 上传成功后才公开，上传失败可安全重试。要发布标签
+之后的新代码，必须先递增 manifest 版本号。手动推送版本标签和在 `main` 运行
+`workflow_dispatch` 也使用同一发布流程；每周二、五的定时任务检查并修复当前稳定版本，
+不再自动生成 beta 版本。其他分支推送和 PR 仅运行验证，不发布。
 
 ## 脱敏清单
 
