@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping
 
 from .device_types import DeviceCategory
+from .light_values import normalize_brightness
 
 
 @dataclass(frozen=True)
@@ -46,7 +47,7 @@ def power_route(
             "ssl",
             "send_control_light_colortemp",
             (current_color_temp or 2700,),
-            {"brightness": current_brightness or 255},
+            {"brightness": normalize_brightness(current_brightness) or 255},
         )
 
     if category in (DeviceCategory.MONO_LIGHT, DeviceCategory.DIMMABLE_LIGHT):
@@ -58,6 +59,7 @@ def power_route(
             if is_on and brightness is not None
             else current_state.get("brightness", 0) or 0
         )
+        current_brightness = normalize_brightness(current_brightness) or 0
         if is_on and current_brightness == 0:
             current_brightness = 255
         return ControlRoute(
@@ -73,6 +75,7 @@ def power_route(
             if is_on and brightness is not None
             else current_state.get("brightness", 0) or 0
         )
+        current_brightness = normalize_brightness(current_brightness) or 0
         current_color_temp = (
             color_temp
             if is_on and color_temp is not None
@@ -226,7 +229,7 @@ def color_temp_route(
             optimistic=optimistic,
         )
     if category == DeviceCategory.FAST_MOVE_DIM_COLOR_LIGHT:
-        brightness = current_state.get("brightness", 255) or 255
+        brightness = normalize_brightness(current_state.get("brightness")) or 255
         mired = 1_000_000 // color_temp_k if color_temp_k > 0 else 370
         return ControlRoute(
             "ssl",
@@ -236,7 +239,10 @@ def color_temp_route(
             optimistic,
         )
 
-    brightness = current_state.get("brightness", 255)
+    maximum = 100 if device_type_raw == 503 else 255
+    brightness = normalize_brightness(current_state.get("brightness"), maximum)
+    if brightness is None:
+        brightness = maximum
     transport_brightness = (
         round(brightness * 255 / 100)
         if device_type_raw == 503

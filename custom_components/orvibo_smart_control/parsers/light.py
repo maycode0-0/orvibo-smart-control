@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
+from ..light_values import normalize_brightness
 from .base import StatePatch
 
 
@@ -30,23 +31,20 @@ def parse_light(
     return StatePatch({"state": state})
 
 
-def parse_dim_color_light(
-    current_state: Mapping[str, Any], raw_status: Mapping[str, Any]
-) -> StatePatch:
-    """Parse the active-low legacy dimmable, tunable-white light."""
-
-    props = raw_status.get("properties", {})
-    brightness = raw_status.get("value2")
+def _legacy_brightness(raw_status: Mapping[str, Any]) -> int | None:
+    """Fall back to properties when a legacy level is missing or invalid."""
+    props = raw_status.get("properties") or {}
+    brightness = normalize_brightness(raw_status.get("value2"))
     if brightness is None:
         raw_brightness = props.get("brightness")
         if isinstance(raw_brightness, dict):
             # 属性型亮度可能是 {"percent": 0-100} / {"value": 0-255} / {"level": ...}
             percent = raw_brightness.get("percent")
-            if percent is not None:
+            if normalize_brightness(percent, 100) is not None:
                 try:
                     # type=38 量纲为 0-255，percent 换算后钳制
-                    brightness = min(255, max(0, int(float(percent) * 255 / 100)))
-                except (TypeError, ValueError):
+                    brightness = normalize_brightness(float(percent) * 255 / 100)
+                except (TypeError, ValueError, OverflowError):
                     brightness = None
             else:
                 brightness = next(
@@ -59,15 +57,27 @@ def parse_dim_color_light(
                 )
         else:
             brightness = raw_brightness
-    if brightness is not None:
-        try:
-            brightness = int(brightness)
-        except (TypeError, ValueError):
-            brightness = None
+    return normalize_brightness(brightness)
 
-    color_temp = raw_status.get("value3")
+
+def _positive_int(value: Any) -> int | None:
+    try:
+        number = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if number > 0 else None
+
+
+def parse_dim_color_light(
+    current_state: Mapping[str, Any], raw_status: Mapping[str, Any]
+) -> StatePatch:
+    """Parse the active-low legacy dimmable, tunable-white light."""
+
+    props = raw_status.get("properties") or {}
+    brightness = _legacy_brightness(raw_status)
+
+    color_temp = _positive_int(raw_status.get("value3"))
     if color_temp is not None:
-        color_temp = int(color_temp)
         if 150 <= color_temp <= 400:
             color_temp = 1_000_000 // color_temp
     else:
@@ -76,11 +86,7 @@ def parse_dim_color_light(
             color_temp = props.get("colorTemp")
         if isinstance(color_temp, dict):
             color_temp = color_temp.get("value")
-        if color_temp is not None:
-            try:
-                color_temp = int(color_temp)
-            except (TypeError, ValueError):
-                color_temp = None
+        color_temp = _positive_int(color_temp)
     if color_temp is not None:
         color_temp = min(6500, max(2700, color_temp))
 
@@ -101,9 +107,12 @@ def parse_dim_color_light(
         else:
             state = current_state.get("state", False)
 
-    return StatePatch(
-        {"state": state, "brightness": brightness, "color_temp": color_temp}
-    )
+    updates = {"state": state}
+    if brightness is not None:
+        updates["brightness"] = brightness
+    if color_temp is not None:
+        updates["color_temp"] = color_temp
+    return StatePatch(updates)
 
 
 def parse_fast_move_dim_color_light(
@@ -113,22 +122,22 @@ def parse_fast_move_dim_color_light(
 
     updates: dict[str, Any] = {}
     value1 = raw_status.get("value1")
-    brightness = raw_status.get("value2")
-    color_temp = raw_status.get("value3")
+    brightness = _legacy_brightness(raw_status)
+    color_temp = _positive_int(raw_status.get("value3"))
 
     if value1 is not None:
         updates["state"] = int(value1) == 0
 
     if brightness is not None:
-        brightness = min(255, max(0, int(brightness)))
         updates["brightness"] = brightness
         if brightness == 0:
             updates["state"] = False
 
     if color_temp is not None:
-        color_temp = int(color_temp)
         if 150 <= color_temp <= 400:
             updates["color_temp"] = min(6000, max(2700, 1_000_000 // color_temp))
+        elif color_temp >= 1000:
+            updates["color_temp"] = min(6000, max(2700, color_temp))
 
     return StatePatch(updates)
 
@@ -148,12 +157,13 @@ def parse_dimmable_light(
     onoff_obj = props.get("onoff", {})
     if isinstance(onoff_obj, dict) and onoff_obj.get("status"):
         updates["state"] = onoff_obj.get("status") == "on"
+    elif raw_status.get("value1") in (0, 1, "0", "1"):
+        updates["state"] = int(raw_status["value1"]) == 0
     elif "state" not in current_state:
         updates["state"] = False
 
-    brightness = _property_brightness(props)
+    brightness = normalize_brightness(_property_brightness(props), 100)
     if brightness is not None:
-        brightness = min(100, max(0, int(brightness)))
         updates["brightness"] = brightness
         if brightness == 0:
             updates["state"] = False
@@ -167,12 +177,11 @@ def parse_zigbee_dimmable_light(
 
     updates: dict[str, Any] = {}
     value1 = raw_status.get("value1")
-    brightness = raw_status.get("value2")
+    brightness = _legacy_brightness(raw_status)
 
     if value1 is not None:
         updates["state"] = int(value1) == 0
     if brightness is not None:
-        brightness = min(255, max(0, int(brightness)))
         updates["brightness"] = brightness
         if brightness == 0:
             updates["state"] = False
@@ -188,8 +197,13 @@ def parse_cct_light(
     updates = dict(parse_dimmable_light(current_state, raw_status).values)
     color_temp = props.get("colorTemp", {})
     color_temp = color_temp.get("value") if isinstance(color_temp, dict) else color_temp
+    color_temp = _positive_int(color_temp)
+    if color_temp is None:
+        color_temp = _positive_int(raw_status.get("value3"))
+        if color_temp is not None and 150 <= color_temp <= 400:
+            color_temp = 1_000_000 // color_temp
     if color_temp is not None:
-        updates["color_temp"] = min(6500, max(2000, int(color_temp)))
+        updates["color_temp"] = min(6500, max(2000, color_temp))
     return StatePatch(updates)
 
 

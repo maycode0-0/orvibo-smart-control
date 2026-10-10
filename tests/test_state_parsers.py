@@ -147,13 +147,62 @@ class StateParserTests(unittest.TestCase):
 
     def test_fast_move_zero_brightness_overrides_on_state(self) -> None:
         patch = self.light.parse_fast_move_dim_color_light(
-            {"state": True}, {"value1": 0, "value2": -2, "value3": 200}
+            {"state": True}, {"value1": 0, "value2": 0, "value3": 200}
         )
 
         self.assertEqual(
             patch.values,
             {"state": False, "brightness": 0, "color_temp": 5000},
         )
+
+    def test_invalid_brightness_does_not_replace_level_or_turn_off(self) -> None:
+        parsers = (
+            self.light.parse_dim_color_light,
+            self.light.parse_fast_move_dim_color_light,
+            self.light.parse_zigbee_dimmable_light,
+            self.light.parse_dimmable_light,
+            self.light.parse_cct_light,
+        )
+        for parser in parsers:
+            for invalid in (-1, -2, -0.5, "-1", "unknown", {}, True, "nan", "inf"):
+                with self.subTest(parser=parser.__name__, value=invalid):
+                    current = {"state": True, "brightness": 80, "color_temp": 4000}
+                    raw = {"value1": 0, "value2": invalid, "properties": {
+                        "onoff": {"status": "on"},
+                        "brightness": {"percent": invalid},
+                    }}
+                    patch = parser(current, raw)
+                    self.assertNotIn("brightness", patch.values)
+                    patch.apply_to(current)
+                    self.assertEqual(current, {
+                        "state": True, "brightness": 80, "color_temp": 4000,
+                    })
+
+    def test_dim_color_invalid_legacy_values_fall_back_to_properties(self) -> None:
+        patch = self.light.parse_dim_color_light({}, {
+            "value1": 0, "value2": -1, "value3": -1,
+            "properties": {
+                "brightness": {"percent": "50.5"},
+                "colorTemp": {"value": 4000},
+            },
+        })
+        self.assertEqual(patch.values, {
+            "state": True, "brightness": 128, "color_temp": 4000,
+        })
+
+    def test_dim_color_partial_push_preserves_last_measurements(self) -> None:
+        current = {"state": False, "brightness": 128, "color_temp": 4000}
+        self.light.parse_dim_color_light(current, {"value1": 0}).apply_to(current)
+        self.assertEqual(current, {"state": True, "brightness": 128, "color_temp": 4000})
+
+    def test_brightness_only_invalid_push_preserves_power(self) -> None:
+        for parser in (self.light.parse_dim_color_light,
+                       self.light.parse_fast_move_dim_color_light,
+                       self.light.parse_zigbee_dimmable_light):
+            with self.subTest(parser=parser.__name__):
+                state = {"state": True, "brightness": 128}
+                parser(state, {"value2": -2}).apply_to(state)
+                self.assertEqual(state, {"state": True, "brightness": 128})
 
     def test_property_dimmable_light_clamps_percentage(self) -> None:
         patch = self.light.parse_dimmable_light(

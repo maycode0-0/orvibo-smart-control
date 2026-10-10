@@ -161,6 +161,102 @@ class DeviceInventoryTests(unittest.TestCase):
         self.assertFalse(states["lock"]["locked"])
         self.assertEqual(states["lock"]["lock_status"], "unlocked")
 
+    def test_property_light_cloud_refresh_does_not_replace_valid_percentage(self):
+        for device_type, subtype in ((502, 431), (503, 436), (503, 461)):
+            with self.subTest(device_type=device_type, subtype=subtype):
+                inventory, _, states, _ = self.make_inventory()
+                protocol = importlib.import_module(
+                    self.module.__package__ + ".protocol"
+                )
+                device = protocol.device_to_dict(protocol.OrviboDevice(
+                    uid="test-light", name="Test light", model="",
+                    device_type=str(device_type), sub_device_type=str(subtype),
+                    room="", parent_uid="", online=True,
+                    value1=0, value2=-1, value3=-1,
+                    properties={"onoff": {"status": "on"},
+                                "brightness": {"percent": 80},
+                                "colorTemp": {"value": 4000}},
+                ))
+                inventory.initialize([device])
+                self.assertEqual(states["test-light"]["brightness"], 80)
+                inventory.merge_cloud([device])
+                self.assertEqual(states["test-light"]["brightness"], 80)
+                self.assertTrue(states["test-light"]["state"])
+
+    def test_invalid_cloud_level_preserves_previous_valid_level(self):
+        for device_type, subtype in ((38, -2), (38, 6), (0, -2), (503, 436)):
+            with self.subTest(device_type=device_type, subtype=subtype):
+                inventory, _, states, _ = self.make_inventory()
+                device = {"device_id": "lamp", "device_type_raw": device_type,
+                          "sub_device_type": subtype, "value1": 0, "value2": -1,
+                          "brightness": -1, "value3": -1, "color_temp": -1,
+                          "state": True, "online": True}
+                states["lamp"] = {"state": True, "brightness": 80, "color_temp": 4000}
+                inventory.merge_cloud([device])
+                self.assertEqual(states["lamp"]["brightness"], 80)
+                self.assertEqual(states["lamp"]["color_temp"], 4000)
+                self.assertTrue(states["lamp"]["state"])
+
+    def test_invalid_initial_level_is_unknown_for_both_discovery_paths(self):
+        for method in ("initialize", "merge_cloud"):
+            for device_type, subtype in ((38, -2), (38, 6), (0, -2), (503, 436)):
+                with self.subTest(method=method, device_type=device_type, subtype=subtype):
+                    inventory, _, states, _ = self.make_inventory()
+                    getattr(inventory, method)([{
+                        "device_id": "lamp", "device_type_raw": device_type,
+                        "sub_device_type": subtype, "state": True, "value1": 0,
+                        "value2": -1, "brightness": -1,
+                    }])
+                    self.assertIsNone(states["lamp"]["brightness"])
+                    self.assertTrue(states["lamp"]["state"])
+
+    def test_cloud_light_refresh_keeps_recent_lan_measurement(self):
+        inventory, _, states, _ = self.make_inventory()
+        state_module = importlib.import_module(self.module.__package__ + ".state_store")
+        states["lamp"] = {"state": True, "brightness": 80}
+        inventory.state_store.merge("lamp", {"brightness": 90}, state_module.StateSource.LAN)
+        inventory.merge_cloud([{
+            "device_id": "lamp", "device_type_raw": 503, "sub_device_type": 436,
+            "value2": -1, "brightness": -1,
+            "properties": {"brightness": {"percent": 50}},
+        }])
+        self.assertEqual(states["lamp"]["brightness"], 90)
+
+    def test_cloud_light_refresh_accepts_valid_legacy_snapshot(self):
+        for device_type, subtype in ((38, -2), (38, 6), (503, 436)):
+            with self.subTest(device_type=device_type, subtype=subtype):
+                inventory, _, states, _ = self.make_inventory()
+                device = {"device_id": "lamp", "device_type_raw": device_type,
+                          "sub_device_type": subtype, "value1": 0, "value2": 80,
+                          "value3": 4000, "brightness": 80, "color_temp": 4000}
+                inventory.initialize([device])
+                self.assertEqual(states["lamp"]["color_temp"], 4000)
+                inventory.merge_cloud([device])
+                self.assertTrue(states["lamp"]["state"])
+                self.assertEqual(states["lamp"]["brightness"], 80)
+                self.assertEqual(states["lamp"]["color_temp"], 4000)
+                device["value1"] = 1
+                inventory.merge_cloud([device])
+                self.assertFalse(states["lamp"]["state"])
+
+    def test_cloud_legacy_light_converts_properties_and_preserves_partial_updates(self):
+        inventory, _, states, _ = self.make_inventory()
+        device = {"device_id": "lamp", "device_type_raw": 38, "sub_device_type": -2,
+                  "value1": 0, "value2": -1, "value3": -1,
+                  "brightness": -1, "color_temp": -1,
+                  "properties": {"brightness": {"percent": 80},
+                                 "colorTemp": {"value": 4000}}}
+        inventory.merge_cloud([device])
+        self.assertEqual(states["lamp"]["brightness"], 204)
+        self.assertEqual(states["lamp"]["color_temp"], 4000)
+        inventory.merge_cloud([{
+            "device_id": "lamp", "device_type_raw": 38, "sub_device_type": -2,
+            "status": {"value1": 1},
+        }])
+        self.assertFalse(states["lamp"]["state"])
+        self.assertEqual(states["lamp"]["brightness"], 204)
+        self.assertEqual(states["lamp"]["color_temp"], 4000)
+
 
 if __name__ == "__main__":
     unittest.main()

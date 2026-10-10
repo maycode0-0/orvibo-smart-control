@@ -7,11 +7,21 @@ from typing import Any, Callable, MutableMapping
 
 from .device_types import DeviceCategory, classify_device, is_hidden_category
 from .lock_status import normalize_battery_properties
+from .light_values import normalize_brightness
 from .parsers import get_state_parser
 from .state_store import StateSource, StateStore
 
 
 _LOGGER = logging.getLogger(__name__)
+
+_DIMMABLE_LIGHT_CATEGORIES = frozenset({
+    DeviceCategory.DIM_COLOR_LIGHT,
+    DeviceCategory.FAST_MOVE_DIM_COLOR_LIGHT,
+    DeviceCategory.DIMMABLE_LIGHT,
+    DeviceCategory.ZIGBEE_DIMMABLE_LIGHT,
+    DeviceCategory.CCT_LIGHT,
+    DeviceCategory.CCT_LIGHT_STRIP,
+})
 
 _BATTERY_FIELDS = (
     "dry_battery_level",
@@ -102,7 +112,10 @@ class DeviceInventory:
             self.devices[device_id] = device
             state = self._initial_state(device)
             parser = get_state_parser(category)
-            if parser is not None:
+            if category in _DIMMABLE_LIGHT_CATEGORIES:
+                state.update(brightness=None, color_temp=None)
+                state.update(self._light_snapshot(device, state, category))
+            elif parser is not None:
                 parser(
                     state,
                     {
@@ -148,6 +161,8 @@ class DeviceInventory:
             self.devices[device_id] = device
             if device_id not in self.states:
                 self.states[device_id] = self._periodic_initial_state(device)
+                if category in _DIMMABLE_LIGHT_CATEGORIES:
+                    self.states[device_id].update(brightness=None, color_temp=None)
 
             cloud_state = {
                 field: device[field]
@@ -165,6 +180,14 @@ class DeviceInventory:
             status = device.get("status", {})
             if isinstance(status, dict):
                 cloud_state.update(status)
+            if category in _DIMMABLE_LIGHT_CATEGORIES:
+                # readtable's legacy levels can be sentinels even when properties
+                # contain a valid percentage. Use the same parser as live pushes.
+                for field in ("state", "brightness", "color_temp"):
+                    cloud_state.pop(field, None)
+                cloud_state.update(
+                    self._light_snapshot(device, self.states[device_id], category)
+                )
             if cloud_state:
                 self.state_store.merge(
                     device_id, cloud_state, StateSource.CLOUD
@@ -195,6 +218,33 @@ class DeviceInventory:
                     self.state_store.merge(
                         device_id, lock_state, StateSource.CLOUD
                     )
+
+    @staticmethod
+    def _light_snapshot(
+        device: dict[str, Any],
+        current_state: dict[str, Any],
+        category: DeviceCategory,
+    ) -> dict[str, Any]:
+        raw = {
+            "properties": device.get("properties") or {},
+            "subDeviceType": device.get("sub_device_type"),
+            "value1": device.get("value1"),
+            "value2": device.get("value2", device.get("brightness")),
+            "value3": device.get("value3", device.get("color_temp")),
+        }
+        status = device.get("status")
+        if isinstance(status, dict):
+            raw.update(status)
+        updates: dict[str, Any] = {}
+        # Keep valid legacy levels for property lights that omit brightness.
+        maximum = 100 if device.get("device_type_raw") in (502, 503) else 255
+        brightness = normalize_brightness(raw.get("value2"), maximum)
+        if brightness is not None:
+            updates["brightness"] = brightness
+        parser = get_state_parser(category)
+        if parser is not None:
+            updates.update(parser(current_state, raw).values)
+        return updates
 
     def _remove(self, device_id: str) -> None:
         self.devices.pop(device_id, None)

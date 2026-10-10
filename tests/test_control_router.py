@@ -111,6 +111,28 @@ class ControlRouterTests(unittest.TestCase):
         self.assertEqual(route.kwargs, {"colortemp_mired": 250})
         self.assertEqual(route.optimistic, {"color_temp": 4000})
 
+    def test_turn_on_does_not_send_invalid_cached_brightness(self):
+        for category in (self.category.DIM_COLOR_LIGHT,
+                         self.category.FAST_MOVE_DIM_COLOR_LIGHT,
+                         self.category.ZIGBEE_DIMMABLE_LIGHT):
+            for invalid in (-2, "-1", None, "unknown", float("nan")):
+                with self.subTest(category=category, brightness=invalid):
+                    route = self.router.power_route(
+                        category, True, {"brightness": invalid, "color_temp": 4000}
+                    )
+                    self.assertEqual(route.kwargs["brightness"], 255)
+
+    def test_color_temp_does_not_send_invalid_cached_brightness(self):
+        for category in (self.category.DIM_COLOR_LIGHT,
+                         self.category.FAST_MOVE_DIM_COLOR_LIGHT):
+            for invalid in (-2, "-1", None, "unknown"):
+                with self.subTest(category=category, brightness=invalid):
+                    route = self.router.color_temp_route(
+                        category, 4000, {"brightness": invalid}
+                    )
+                    brightness = route.args[0] if category == self.category.FAST_MOVE_DIM_COLOR_LIGHT else route.kwargs["brightness"]
+                    self.assertEqual(brightness, 255)
+
 
 if __name__ == "__main__":
     unittest.main()

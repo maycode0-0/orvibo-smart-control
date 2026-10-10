@@ -10,6 +10,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import DOMAIN, MANUFACTURER, DEVICE_TYPE_LIGHT, DEVICE_TYPE_CLOTHES_HORSE
 from .coordinator import OrviboSmartControlCoordinator
 from .device_types import classify_device, DeviceCategory
+from .light_values import normalize_brightness
 from .selection import selected_device_ids
 
 _LOGGER = logging.getLogger(__name__)
@@ -147,9 +148,10 @@ class OrviboLight(CoordinatorEntity, LightEntity):
     def brightness(self) -> Optional[int]:
         state = self.coordinator.get_device_state(self._device_id)
         if state and state.get("state", False):
-            brightness = state.get("brightness")
+            brightness = normalize_brightness(
+                state.get("brightness"), 100 if self._brightness_is_percent else 255
+            )
             if brightness is not None:
-                brightness = int(brightness)
                 if self._brightness_is_percent:
                     # type=503 亮度范围 0-100，转换为 HA 的 0-255
                     return min(int(brightness * 255 / 100), 255)
