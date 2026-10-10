@@ -1,7 +1,7 @@
 # ORVIBO Smart Control
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![Version](https://img.shields.io/badge/version-0.2.1-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
+[![Version](https://img.shields.io/badge/version-0.2.2-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
 
 ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。它把 MixPad
 网关局域网直连与 ORVIBO 云端协议放在同一条设备、状态和控制链路中：能在 LAN
@@ -34,6 +34,9 @@ LAN > 云端实时推送（SSL）> 云端快照（REST）> 乐观状态 > 初始
 低优先级的旧值不会在保护窗口内回滚刚收到的 LAN 状态。相同值会被去重。门锁
 `107/522` 和晾衣机 `52` 属于云专属类型；门锁事件、媒体和临时密码始终使用云端。
 因此希望这些设备保持可用时应使用默认结合模式或纯云端模式。
+
+设备在线状态依据云端快照和实时上报；灯具长时间没有状态变化不会仅因未推送而变为
+“不可用”。没有新上报时保留最近已知状态，云端明确报告离线时仍会正常显示不可用。
 
 纯 LAN 是运行阶段的传输限制，不是完全离线安装：首次启动和重载仍需登录 ORVIBO 云端，
 用于确认账号区域、家庭、设备库存、网关 UID 和可信地址；完成发现后不建立云端 TLS 实时

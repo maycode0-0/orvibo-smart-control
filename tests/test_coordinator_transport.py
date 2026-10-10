@@ -27,8 +27,7 @@ def _module(name: str, **attributes):
     return module
 
 
-def _load_coordinator_module():
-    package_name = "orvibo_smart_control_coordinator_test"
+def _load_coordinator_module(package_name="orvibo_smart_control_coordinator_test"):
     package = types.ModuleType(package_name)
     package.__path__ = [str(COMPONENT_PATH)]
     sys.modules[package_name] = package

@@ -89,7 +89,6 @@ class OrviboSmartControlCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         self._cmd42_log: list[dict] = []
         self._redaction_salt = secrets.token_bytes(32)
         self._last_update_time: Dict[str, float] = {}  # 设备最后更新时间戳
-        self.OFFLINE_TIMEOUT = 600  # 设备离线超时秒数
 
         super().__init__(
             hass,
@@ -1046,16 +1045,14 @@ class OrviboSmartControlCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return self.devices.get(device_id)
 
     def get_device_state(self, device_id: str) -> Optional[Dict[str, Any]]:
-        state = self.device_states.get(device_id)
-        if state is None:
-            return None
-        # 检查离线超时：最后更新超过 OFFLINE_TIMEOUT 秒则标记为离线
-        last_time = self._last_update_time.get(device_id)
-        if last_time is not None:
-            elapsed = __import__("time").time() - last_time
-            if elapsed > self.OFFLINE_TIMEOUT and state.get("online", False):
-                state["online"] = False
-        return state
+        """Return the last reported state without changing availability.
+
+        Device pushes report changes, not periodic per-device heartbeats. A quiet
+        light may still be online, including after a fresh REST snapshot. Only
+        state reconciliation should update online; reading state for a control
+        or an entity property must never mark the device offline.
+        """
+        return self.device_states.get(device_id)
 
     async def async_cleanup(self):
         self._lan_closed = True
