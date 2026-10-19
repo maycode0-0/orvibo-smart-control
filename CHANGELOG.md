@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [0.2.6b16] - 2026-10-19
+
+### Fixed
+
+- 修复 Home Assistant 页面刷新时 Lovelace 资源加载竞态：两个内置卡片注册完成后会自动请求重建仪表盘，避免偶发显示 `Custom element doesn't exist` 配置错误。
+
+### Verification
+
+- Node.js 卡片语法检查通过；卡片回归测试 9 项、资源注册测试 11 项和新增刷新竞态测试 1 项通过。
+
 ## [0.2.6b15] - 2026-10-19
 
 ### Fixed
