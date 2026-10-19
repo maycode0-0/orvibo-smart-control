@@ -1,7 +1,7 @@
 # ORVIBO Smart Control
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![Version](https://img.shields.io/badge/version-0.2.6b14-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
+[![Version](https://img.shields.io/badge/version-0.2.6b15-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
 
 ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。它把 MixPad
 网关局域网直连与 ORVIBO 云端协议放在同一条设备、状态和控制链路中：能在 LAN
@@ -58,7 +58,7 @@ LAN > 云端实时推送（SSL）> 云端快照（REST）> 乐观状态 > 初始
 ### 摄像机与录像机实时画面
 
 `0.2.6b5` 为匹配成功的 Meari XTS/p2p=2 摄像机及录像机在线通道创建 `camera` 实体。
-在 HACS 更新到 `v0.2.6b14` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
+在 HACS 更新到 `v0.2.6b15` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
 “通道 3”等摄像头实体；也可把实体加入图片概览卡片并设置 `camera_view: live`。
 HAOS 使用自带 FFmpeg，无需单独安装视频服务。首次连接需要获取授权和建立设备连接，
 可能需要数十秒；首次缩略图超时后再次打开即可复用正在建立的连接。
@@ -173,6 +173,11 @@ MD5 摘要；配置项不保存明文，但该摘要仍可直接用于认证，�
 最近开门突出姓名、内外开方向、方式和时间，内开不显示旧的外开人员或凭据。
 猫眼抓拍增加最新图片大预览、横滑历史缩略图和可用键盘翻页的大图；刷新失败保留已有图片。
 相关状态更新保留正在填写的内容与输入焦点，卡片适配手机窄列和深浅色主题。
+`0.2.6b15` 修复集成在 Home Assistant 启动过早或已运行后加载、重载时没有再次注册
+Lovelace 卡片资源的问题，避免录像回放卡片和门锁卡片同时显示 `Custom element doesn't exist`。
+在 HACS 更新到 **v0.2.6b15**，**重启 Home Assistant 后强制刷新浏览器**。
+详见 [本版说明](docs/releases/0.2.6b15.md)。
+
 `0.2.6b14` 修复升级后资源地址可能回退、需要删除并重新添加 JavaScript 资源的问题：
 Home Assistant 启动完成后再次核对并原地更新资源，保留资源条目与卡片配置。
 同时修正抓拍解析参数与媒体引用路径，使用集成独立的鉴权媒体源读取现有图片和录像，

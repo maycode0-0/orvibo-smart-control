@@ -2,6 +2,17 @@
 
 ## [Unreleased]
 
+## [0.2.6b15] - 2026-10-19
+
+### Fixed
+
+- 修复集成在 Home Assistant 启动过早或已运行后加载、重载时没有再次注册 Lovelace 卡片资源的问题；录像回放卡片和门锁卡片现在都会重新注册对应的 JavaScript 模块，避免同时出现 `Custom element doesn't exist`。
+
+### Verification
+
+- Node.js 卡片语法检查通过；NVR 与门锁卡片回归测试 9 项通过。
+- 完整 Python 测试、HACS validation 和 hassfest 由发布流水线执行。
+
 ## [0.2.6b14] - 2026-10-16
 
 ### Fixed

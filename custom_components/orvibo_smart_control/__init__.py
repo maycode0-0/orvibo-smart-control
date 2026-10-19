@@ -82,6 +82,11 @@ async def async_setup(hass: HomeAssistant, config: dict):
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
+    # ``async_setup`` can run before Lovelace has restored its storage
+    # collection.  Register again when the config entry is loaded so the
+    # bundled cards are available even when the integration is added or
+    # reloaded after Home Assistant has already started.
+    await async_register_card_resources(hass)
     username = entry.data[CONF_USERNAME]
     password_hash = entry.data[CONF_PASSWORD_HASH]
     family_id = entry.data.get(CONF_FAMILY_ID)
