@@ -914,3 +914,39 @@ for (const card of [
     window.customCards.push(card);
   }
 }
+
+// Lovelace starts loading custom resources and rendering the dashboard in
+// parallel. If this module wins that race, the dashboard can already contain
+// a temporary "Custom element doesn't exist" card. Ask Lovelace to rebuild
+// once the module has registered its elements. The lookup crosses HA's shadow
+// roots so the event reaches the panel even when the card is deeply nested.
+const notifyLovelaceCardReady = () => {
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+  const findRoot = (node, seen = new Set()) => {
+    if (!node || seen.has(node)) return null;
+    seen.add(node);
+    if (typeof node.querySelector === "function") {
+      const root = node.querySelector("hui-root");
+      if (root) return root;
+    }
+    if (typeof node.querySelectorAll !== "function") return null;
+    for (const element of node.querySelectorAll("*")) {
+      if (element.shadowRoot) {
+        const root = findRoot(element.shadowRoot, seen);
+        if (root) return root;
+      }
+    }
+    return null;
+  };
+  const state = window.__orviboSmartControlCardReady ||
+    (window.__orviboSmartControlCardReady = { timer: null });
+  if (state.timer !== null) return;
+  state.timer = setTimeout(() => {
+    state.timer = null;
+    const root = findRoot(document);
+    if (root && typeof root.dispatchEvent === "function") {
+      root.dispatchEvent(new Event("config-refresh", { bubbles: true, composed: true }));
+    }
+  }, 0);
+};
+notifyLovelaceCardReady();
