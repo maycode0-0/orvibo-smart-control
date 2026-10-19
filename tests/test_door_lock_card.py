@@ -16,6 +16,13 @@ global.customElements = {get: name => definitions.get(name), define: (name, cls)
 global.window = {customCards: []};
 vm.runInThisContext(fs.readFileSync(process.argv[1], 'utf8'));
 const Card = definitions.get('orvibo-smart-control-door-lock-card');
+async function settleImages(card) {
+  const deadline=Date.now()+2000;
+  while(card._snapshotActive || [...card._snapshotImages.values()].some(image=>image.status==='queued')) {
+    assert(Date.now()<deadline,'image requests did not settle');
+    await new Promise(resolve=>setTimeout(resolve,2));
+  }
+}
 (async () => {
   const card = new Card();
   card.setConfig({history_limit: 47});
@@ -161,7 +168,7 @@ assert.deepEqual(card._events,[oldImage]);
 assert(card._eventsError);
 assert(card._eventsLoaded);
 assert(!card._eventsLoading);
-assert(card._eventsMarkup().includes('/media/old-image'));
+assert(card._eventsMarkup().includes('data-media-id="old-image"'));
 fail=false;
 await card._loadEvents(true);
 assert.equal(card._events.length,1);
@@ -204,6 +211,152 @@ card.hass={states:{'sensor.lock':lock,'binary_sensor.door':door,'sensor.other':{
 assert.equal(renders,0);
 card.hass={states:{'sensor.lock':{state:'unlocked'},'binary_sensor.door':door}};
 assert.equal(renders,1);
+''')
+
+    def test_stalled_download_is_aborted_and_retried_with_fresh_media_address(self):
+        self._run_script(r'''
+Card.SNAPSHOT_TIMEOUT_MS=20;
+const card=new Card();
+card._deviceId='lock';card._entitiesLoaded=true;card._eventsLoaded=true;
+card._events=[{mediaId:'capture',url:'/media/old?authSig=old',kind:'ring',time:100}];
+let resolves=0;
+card._hass={states:{},callWS:async request=>{
+  assert.deepEqual(request,{type:'media_source/resolve_media',media_content_id:'capture'});
+  resolves++;
+  return {url:'/media/new?authSig=fresh'};
+}};
+const requests=[];
+window.fetch=async(url,options)=>{
+  requests.push({url,options});
+  if(requests.length===1)return new Promise(()=>{});
+  return new Response(new Blob(['image'],{type:'image/jpeg'}));
+};
+card._render();
+await settleImages(card);
+assert.equal(requests.length,2);
+assert(requests[0].options.signal.aborted);
+assert(requests.every(request=>request.options.cache==='no-store'));
+assert.equal(requests[1].url,'/media/new?authSig=fresh');
+assert.equal(resolves,1);
+const image=card._snapshotImages.get('capture');
+assert.equal(image.status,'ready');assert(image.url.startsWith('blob:'));
+assert(card._eventsMarkup().includes(image.url));
+card._openSnapshot(0,'opener');
+assert(card._lightboxMarkup().includes(image.url));
+for(let i=0;i<5;i++)card._render();
+assert.equal(requests.length,2,'re-renders must reuse the downloaded capture');
+card.disconnectedCallback();
+assert.equal(card._snapshotImages.size,0);
+''')
+
+    def test_permanent_pending_is_finite_and_manual_refresh_can_recover(self):
+        self._run_script(r'''
+Card.SNAPSHOT_TIMEOUT_MS=15;
+const card=new Card();
+card._deviceId='lock';card._entitiesLoaded=true;card._eventsLoaded=true;
+const event={type:'image',media_id:'capture',kind:'ring',time:100};
+card._events=[{mediaId:'capture',url:'/media/capture',kind:'ring',time:100}];
+card._hass={states:{},callWS:async request=>request.service==='list_events'
+  ? {response:{events:[event]}} : {url:'/media/capture'}};
+const signals=[];
+window.fetch=(_url,options)=>{signals.push(options.signal);return new Promise(()=>{});};
+card._render();await settleImages(card);
+assert.equal(signals.length,2);
+assert(signals.every(signal=>signal.aborted));
+assert.equal(card._snapshotImages.get('capture').status,'failed');
+card._render();assert.equal(signals.length,2,'failed captures must not retry on every render');
+window.fetch=async()=>new Response(new Blob(['recovered'],{type:'image/jpeg'}));
+await card._loadEvents(true);await settleImages(card);
+assert.equal(card._snapshotImages.get('capture').status,'ready');
+card.disconnectedCallback();
+''')
+
+    def test_actual_downloads_are_bounded_ordered_and_shared_between_views(self):
+        self._run_script(r'''
+const card=new Card();
+card._deviceId='lock';card._entitiesLoaded=true;card._eventsLoaded=true;
+card._events=Array.from({length:7},(_,i)=>({mediaId:'image-'+i,url:'/media/'+i,kind:'ring',time:100-i}));
+card._hass={states:{}};
+let active=0,peak=0;const requested=[];
+window.fetch=async url=>{
+  requested.push(url);active++;peak=Math.max(peak,active);
+  await new Promise(resolve=>setTimeout(resolve,5));active--;
+  return new Response(new Blob([url],{type:'image/jpeg'}));
+};
+card._render();await settleImages(card);
+assert.equal(peak,2);
+assert.deepEqual(requested,card._events.map(event=>event.url));
+const first=card._snapshotImages.get('image-0').url;
+assert.equal(card._eventsMarkup().split(first).length-1,2,'latest and its thumbnail share one blob');
+card._openSnapshot(0,'latest');assert(card._lightboxMarkup().includes(first));
+assert.equal(requested.length,7);
+card.disconnectedCallback();
+''')
+
+    def test_timeouts_cover_response_body_and_media_resolution(self):
+        self._run_script(r'''
+Card.SNAPSHOT_TIMEOUT_MS=15;
+for(const hang of ['body','resolve']) {
+  const card=new Card();card._deviceId='lock';card._entitiesLoaded=true;card._eventsLoaded=true;
+  card._events=[{mediaId:'image',url:'/media/image',kind:'ring',time:100}];
+  let calls=0;
+  card._hass={states:{},callWS:async()=>hang==='resolve'?new Promise(()=>{}):{url:'/media/fresh'}};
+  const signals=[];
+  window.fetch=async(_url,options)=>{
+    calls++;signals.push(options.signal);
+    if(hang==='resolve')throw Error('network unavailable');
+    return {ok:true,blob:()=>new Promise(()=>{})};
+  };
+  card._render();await settleImages(card);
+  assert.equal(calls,hang==='resolve'?1:2);
+  assert(signals.every(signal=>signal.aborted || hang==='resolve'));
+  assert.equal(card._snapshotImages.get('image').status,'failed');
+  card.disconnectedCallback();
+}
+''')
+
+    def test_http_failures_and_empty_images_retry_only_once(self):
+        self._run_script(r'''
+for(const status of [401,404,503,200]) {
+  const card=new Card();card._deviceId='lock';card._entitiesLoaded=true;card._eventsLoaded=true;
+  card._events=[{mediaId:'image',url:'/media/image',kind:'ring',time:100}];
+  card._hass={states:{},callWS:async()=>({url:'/media/retry'})};
+  let calls=0;
+  window.fetch=async()=>{calls++;return new Response('',{status});};
+  card._render();await settleImages(card);
+  assert.equal(calls,2);
+  assert.equal(card._snapshotImages.get('image').status,'failed');
+  card._render();assert.equal(calls,2);
+  card.disconnectedCallback();
+}
+''')
+
+    def test_image_cleanup_aborts_pending_and_revokes_only_discarded_blobs(self):
+        self._run_script(r'''
+const card=new Card();card._deviceId='lock';card._entitiesLoaded=true;card._eventsLoaded=true;
+card._events=[{mediaId:'ready',url:'/ready',kind:'ring',time:100}];
+card._hass={states:{}};
+window.fetch=async()=>new Response(new Blob(['image'],{type:'image/jpeg'}));
+card._render();await settleImages(card);
+const loaded=card._snapshotImages.get('ready');
+const revoked=[];const originalRevoke=URL.revokeObjectURL;
+URL.revokeObjectURL=url=>{revoked.push(url);originalRevoke(url);};
+try {
+  let signal,complete;
+  window.fetch=async(_url,options)=>{signal=options.signal;return new Promise(resolve=>{complete=resolve;});};
+  card._events.push({mediaId:'pending',url:'/pending',kind:'ring',time:90});
+  card._render();
+  card._clearSnapshotImages(true);
+  assert(signal.aborted);assert.equal(card._snapshotImages.get('ready'),loaded);assert.equal(revoked.length,0);
+  complete(new Response(new Blob(['late'],{type:'image/jpeg'})));
+  await settleImages(card);
+  assert.equal(card._snapshotImages.size,1,'late responses cannot repopulate discarded captures');
+  card._events=[];card._syncSnapshotImages();
+  assert.deepEqual(revoked,[loaded.url]);
+  assert.equal(card._snapshotImages.size,0);
+  card.setConfig({device_id:'other'});
+  assert.equal(card._snapshotImages.size,0);
+}finally{URL.revokeObjectURL=originalRevoke;card.disconnectedCallback();}
 ''')
 
     @unittest.skipUnless(shutil.which('node'), 'Node.js required')

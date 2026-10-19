@@ -51,6 +51,8 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     this._eventsLoading = false;
     this._eventsError = "";
     this._eventsRequest = null;
+    this._snapshotImages = new Map();
+    this._snapshotActive = 0;
     this._historyLimit = 30;
     this._eventsLastCam = "";
     this._lastReloadAt = 0;
@@ -61,12 +63,22 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
   }
 
   static LIST_THROTTLE_MS = 60000;
+  static SNAPSHOT_TIMEOUT_MS = 12000;
+
+  connectedCallback() {
+    if (this._hass && this._deviceId) this._render();
+  }
+
+  disconnectedCallback() {
+    this._clearSnapshotImages();
+  }
 
   static getStubConfig() {
     return {};
   }
 
   setConfig(config) {
+    this._clearSnapshotImages();
     this._config = config || {};
     this._deviceId = "";
     this._entities = {};
@@ -374,6 +386,7 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     const camKey = camera ? `${camera.state}|${camera.last_updated}` : "";
     if (!tempOnly && (!this._eventsLoaded || (camKey && camKey !== this._eventsLastCam))) this._loadEvents();
     this._eventsLastCam = camKey;
+    if (!this._eventsLoading) this._syncSnapshotImages();
 
     root.innerHTML = `
       <style>${this._styles()}</style>
@@ -453,8 +466,16 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
       button.addEventListener("click", () => this._openSnapshot(Number(button.dataset.idx), button.id));
     });
     root.querySelectorAll(".snapshot-image").forEach((image) => {
-      image.addEventListener("error", () => { image.hidden = true; image.parentElement.classList.add("image-failed"); });
+      image.addEventListener("error", () => {
+        const state = this._snapshotImages.get(image.dataset.mediaId);
+        if (!state?.url || image.getAttribute("src") !== state.url) return;
+        URL.revokeObjectURL(state.url);
+        state.url = "";
+        state.status = "failed";
+        this._updateSnapshotImages();
+      });
     });
+    this._updateSnapshotImages();
     const dialog = this._lightboxEvent ? root.querySelector("#ov-lightbox") : null;
     if (dialog) {
       dialog.addEventListener("cancel", (event) => { event.preventDefault(); this._closeLightbox(); });
@@ -540,7 +561,8 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
       .thumb img { display:block; width:100%; height:100%; object-fit:cover; }
       .ev-item:hover .thumb { border-color:var(--primary-color); }
       .ev-time { display:block; margin-top:4px; font-size:11px; color:var(--secondary-text-color); font-variant-numeric:tabular-nums; white-space:nowrap; }
-      .image-fallback { display:none; position:absolute; inset:0; align-items:center; justify-content:center; flex-direction:column; gap:6px; color:var(--secondary-text-color); font-size:12px; }
+      .image-fallback { display:flex; position:absolute; inset:0; align-items:center; justify-content:center; flex-direction:column; gap:6px; color:var(--secondary-text-color); font-size:12px; }
+      .snapshot-image:not([hidden]) ~ .image-fallback { display:none; }
       .image-failed .image-fallback { display:flex; }
       .image-failed .snapshot-caption { display:none; }
       .snapshot-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; min-height:154px; border:1px dashed var(--divider-color); border-radius:12px; background:var(--ov-surface); color:var(--secondary-text-color); text-align:center; padding:20px; }
@@ -756,6 +778,117 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     return labels[kind] || kind || "事件";
   }
 
+  _clearSnapshotImages(keepLoaded = false) {
+    for (const [key, image] of this._snapshotImages) {
+      if (keepLoaded && image.status === "ready") continue;
+      this._snapshotImages.delete(key);
+      image.controller?.abort();
+      if (image.url) URL.revokeObjectURL(image.url);
+    }
+  }
+
+  _syncSnapshotImages() {
+    if (typeof window.fetch !== "function" || this.isConnected === false) return;
+    const keys = new Set(this._events.map((event) => event.mediaId || event.url));
+    for (const [key, image] of this._snapshotImages) {
+      if (keys.has(key)) continue;
+      this._snapshotImages.delete(key);
+      image.controller?.abort();
+      if (image.url) URL.revokeObjectURL(image.url);
+    }
+    for (const event of this._events) {
+      const key = event.mediaId || event.url;
+      if (!this._snapshotImages.has(key)) {
+        this._snapshotImages.set(key, { event, status: "queued", url: "", controller: null });
+      }
+    }
+    this._pumpSnapshotImages();
+  }
+
+  _pumpSnapshotImages() {
+    if (this.isConnected === false) return;
+    for (const [key, image] of this._snapshotImages) {
+      if (this._snapshotActive >= 2) break;
+      if (image.status !== "queued") continue;
+      image.status = "loading";
+      this._snapshotActive++;
+      this._fetchSnapshotImage(key, image).finally(() => {
+        this._snapshotActive--;
+        this._pumpSnapshotImages();
+      });
+    }
+  }
+
+  async _fetchSnapshotImage(key, image) {
+    const current = () => this._snapshotImages.get(key) === image;
+    const hass = this._hass;
+    for (let attempt = 0; attempt < 2 && current(); attempt++) {
+      const controller = new AbortController();
+      image.controller = controller;
+      let timer;
+      try {
+        // Direct <img> requests have no deadline and can remain Stalled forever.
+        // Fetch once per capture, bypass the HTTP cache, then share its blob URL
+        // between the latest image, thumbnail, and lightbox across re-renders.
+        const download = async () => {
+          let url = image.event.url;
+          if (attempt && image.event.mediaId) {
+            const resolved = await hass.callWS({ type: "media_source/resolve_media", media_content_id: image.event.mediaId });
+            if (typeof resolved?.url !== "string" || !resolved.url) throw new Error("图片地址无效");
+            url = resolved.url;
+          }
+          if (!current() || controller.signal.aborted) throw new Error("图片请求已取消");
+          const response = await window.fetch(url, { signal: controller.signal, cache: "no-store" });
+          if (!response.ok) throw new Error(`图片请求失败 (${response.status})`);
+          const blob = await response.blob();
+          if (!blob.size) throw new Error("图片内容为空");
+          return blob;
+        };
+        const blob = await Promise.race([
+          download(),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => {
+              controller.abort();
+              reject(new Error("图片加载超时"));
+            }, OrviboSmartControlDoorLockCard.SNAPSHOT_TIMEOUT_MS);
+            controller.signal.addEventListener("abort", () => reject(new Error("图片请求已取消")), { once: true });
+          }),
+        ]);
+        if (!current()) return;
+        image.url = URL.createObjectURL(blob);
+        image.status = "ready";
+        break;
+      } catch (_error) {
+        if (!current()) return;
+        if (attempt === 1) image.status = "failed";
+      } finally {
+        clearTimeout(timer);
+        image.controller = null;
+      }
+    }
+    if (current()) this._updateSnapshotImages();
+  }
+
+  _snapshotImageMarkup(event) {
+    const key = event.mediaId || event.url;
+    const image = this._snapshotImages.get(key);
+    return `<img class="snapshot-image" data-media-id="${this._escapeHtml(key)}" ${image?.url ? `src="${this._escapeHtml(image.url)}"` : "hidden"} alt="${this._escapeHtml(this._eventLabel(event.kind))}" />
+      <span class="image-fallback" role="status"><ha-icon icon="mdi:image-outline"></ha-icon><span>正在加载抓拍…</span></span>`;
+  }
+
+  _updateSnapshotImages() {
+    this.shadowRoot.querySelectorAll(".snapshot-image").forEach((element) => {
+      const image = this._snapshotImages.get(element.dataset.mediaId);
+      const failed = image?.status === "failed";
+      element.hidden = !image?.url;
+      if (image?.url && element.getAttribute("src") !== image.url) element.setAttribute("src", image.url);
+      if (!image?.url) element.removeAttribute("src");
+      element.parentElement.classList.toggle("image-failed", failed);
+      const message = element.parentElement.querySelector(".image-fallback span");
+      if (message) message.textContent = failed ? "图片加载失败，请刷新抓拍重试" : "正在加载抓拍…";
+    });
+  }
+
   _eventsMarkup() {
     const error = this._eventsError
       ? `<div class="message error" role="status">${this._escapeHtml(this._eventsError)}</div>` : "";
@@ -765,13 +898,12 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
         <span>${this._eventsError ? "点击右上角刷新重试" : "门锁上报抓拍后会显示在这里"}</span></div>`;
     }
     const latest = this._events[0];
-    const fallback = `<span class="image-fallback"><ha-icon icon="mdi:image-off-outline"></ha-icon><span>图片暂不可用，请刷新</span></span>`;
     return `${error}<button type="button" class="snapshot" id="ov-snapshot-latest" data-idx="0" aria-label="查看最新抓拍：${this._escapeHtml(this._fmtTs(latest.time))}">
-      <img class="snapshot-image" src="${this._escapeHtml(latest.url)}" alt="${this._escapeHtml(this._eventLabel(latest.kind))}" />${fallback}
+      ${this._snapshotImageMarkup(latest)}
       <span class="snapshot-caption"><strong>最新抓拍 · ${this._escapeHtml(this._eventLabel(latest.kind))}</strong><span>${this._escapeHtml(this._shortTime(latest.time))}</span></span>
     </button>${this._events.length > 1 ? `<div class="events" aria-label="历史抓拍">${this._events.slice(0, this._historyLimit).map((ev, idx) => `
       <button type="button" class="ev-item" id="ov-snapshot-${idx}" data-idx="${idx}" title="${this._escapeHtml(`${this._eventLabel(ev.kind)} · ${this._fmtTs(ev.time)}`)}" aria-label="查看第 ${idx + 1} 张抓拍：${this._escapeHtml(this._fmtTs(ev.time))}">
-        <span class="thumb"><img class="snapshot-image" src="${this._escapeHtml(ev.url)}" alt="${this._escapeHtml(this._eventLabel(ev.kind))}" loading="lazy" />${fallback}</span>
+        <span class="thumb">${this._snapshotImageMarkup(ev)}</span>
         <span class="ev-time">${this._escapeHtml(this._shortTime(ev.time) || "时间未知")}</span>
       </button>`).join("")}</div>` : ""}`;
   }
@@ -784,7 +916,7 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     return `<dialog class="lightbox" id="ov-lightbox" aria-labelledby="ov-lightbox-title">
       <div class="lightbox-toolbar"><div><strong id="ov-lightbox-title">${this._escapeHtml(this._eventLabel(event.kind))}</strong><small>${this._escapeHtml(this._fmtTs(event.time))}</small></div>
         <button type="button" class="icon-button" id="ov-lightbox-close" aria-label="关闭抓拍预览" autofocus><ha-icon icon="mdi:close"></ha-icon></button></div>
-      <div class="lightbox-image"><img class="snapshot-image" src="${this._escapeHtml(event.url)}" alt="${this._escapeHtml(this._eventLabel(event.kind))}" /><span class="image-fallback"><ha-icon icon="mdi:image-off-outline"></ha-icon>图片暂不可用，请关闭后刷新</span></div>
+      <div class="lightbox-image">${this._snapshotImageMarkup(event)}</div>
       <div class="lightbox-footer"><button type="button" class="icon-button" id="ov-lightbox-prev" aria-label="上一张抓拍" ${index <= 0 ? "disabled" : ""}><ha-icon icon="mdi:chevron-left"></ha-icon></button>
         <span>${index >= 0 ? `${index + 1} / ${this._events.length}` : "抓拍预览"}</span>
         <button type="button" class="icon-button" id="ov-lightbox-next" aria-label="下一张抓拍" ${index < 0 || index >= this._events.length - 1 ? "disabled" : ""}><ha-icon icon="mdi:chevron-right"></ha-icon></button></div>
@@ -817,6 +949,7 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     if (!this._hass || !this._deviceId || this._eventsLoading) return;
     if (force) {
       this._eventsLoaded = false;
+      this._clearSnapshotImages(true);
     }
     this._eventsLoading = true;
     this._eventsError = "";
