@@ -1,11 +1,22 @@
 # ORVIBO Smart Control
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![Version](https://img.shields.io/badge/version-0.2.6b15-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
+[![Version](https://img.shields.io/badge/version-2.0.0b0-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
 
 ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。它把 MixPad
 网关局域网直连与 ORVIBO 云端协议放在同一条设备、状态和控制链路中：能在 LAN
 完成的操作优先本地执行，无法本地接管的设备或失败请求由云端承接。
+
+## 2.0 版本
+
+`2.0.0b0` 基于 `0.2.6b17`，开启 `2.0` 版本线，包含基于 HomeMate 5.2.6.307
+逆向证据的协议重构。开发分支仍为 `2.0`，具体变更见
+[发布说明](docs/releases/2.0.0b0.md) 与 [CHANGELOG](CHANGELOG.md)。
+
+本次统一类型 `0`、`116` 和其中虚拟 MixPad 调光器的亮度编码、回读及状态单位；
+为明确标记为 RF 的 `34/35` 窗帘提供开、关、停，不提供位置滑块或猜测的关闭状态。
+新加入的静态协议分支尚未通过真机验证。范围、公式和验证记录见
+[2.0 协议重构](docs/protocol-profiles-2.0.md)。
 
 ## 通道策略
 
@@ -57,8 +68,8 @@ LAN > 云端实时推送（SSL）> 云端快照（REST）> 乐观状态 > 初始
 
 ### 摄像机与录像机实时画面
 
-`0.2.6b5` 为匹配成功的 Meari XTS/p2p=2 摄像机及录像机在线通道创建 `camera` 实体。
-在 HACS 更新到 `v0.2.6b15` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
+从 `0.2.6b4` 起，为匹配成功的 Meari XTS/p2p=2 摄像机及录像机在线通道创建 `camera` 实体。
+在 HACS 更新到 `v2.0.0b0` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
 “通道 3”等摄像头实体；也可把实体加入图片概览卡片并设置 `camera_view: live`。
 HAOS 使用自带 FFmpeg，无需单独安装视频服务。首次连接需要获取授权和建立设备连接，
 可能需要数十秒；首次缩略图超时后再次打开即可复用正在建立的连接。
@@ -70,8 +81,8 @@ S1 等匹配的 Meari XTS/p2p=2 摄像机新增“存储卡回放”实体；更
 **硬盘和存储卡查询与回放尚待真实设备验证**。当前无声音。
 添加手动卡片：`type: custom:orvibo-smart-control-nvr-card`，操作步骤见 [录像回放说明](docs/meari-hdd-playback.md)。
 在线通道列表变化后请重新加载集成。仅本地 LAN 模式无法取得必要的云授权。
-版本发布规则：默认使用 `v0.x.ybN` 临时诊断版本；只有明确要求“发布正式版”时才使用
-`v0.x.y` 这类正式版本。两种版本都按 GitHub 普通 Release / Latest 发布，不标记为
+版本发布规则：当前以 `2.0` 为基础，默认使用 `v2.0.0bN` 临时诊断版本；只有明确要求
+“发布正式版”时才使用 `v2.0.0` 这类正式版本。两种版本都按 GitHub 普通 Release / Latest 发布，不标记为
 Pre-release，以确保 HACS 能识别更新。
 详细说明与故障诊断见 [实时视频](docs/meari-live-video.md) 和
 [录像机诊断指南](docs/nvr-video-diagnostics.md)。
@@ -146,14 +157,14 @@ MD5 摘要；配置项不保存明文，但该摘要仍可直接用于认证，�
 | 类别                 | 已实现能力                                | 典型控制通道        |
 | -------------------- | ----------------------------------------- | ------------------- |
 | 灯光与墙壁开关       | 开关、亮度、色温                          | LAN 优先，云兜底    |
-| 窗帘与管状电机       | 开合、位置、停止；梦幻帘叶片角度          | 依型号选择 LAN 或云 |
+| 窗帘与管状电机       | 开合、停止；非 RF 型号支持位置，梦幻帘支持叶片角度 | 依型号选择 LAN 或云 |
 | 风机盘管、地暖、新风 | 模式、温度、风速或预设模式                | 依型号选择 LAN 或云 |
 | 安防与环境传感器     | 人体、门窗、烟雾、燃气、水浸、温湿度      | 只读状态            |
 | 智能门锁             | 锁/门磁、电池、事件、截图、录像、临时密码 | 云专属              |
 | 智能晾衣机           | 灯、消毒、风干、热干、升降                | 云专属              |
 | 摄像机 / NVR `14/162` | Meari XTS 在线通道实时画面；其他协议仅诊断 | 云授权 + P2P/中继 |
 
-完整的已验证型号、`deviceType`、限制和通道标记见
+具体型号、`deviceType`、证据等级、限制和通道标记见
 [设备支持矩阵](docs/DEVICE_SUPPORT.md)。未列出的型号可能会被识别并展示，但不会据此
 推测控制命令；这是防止未知设备收到错误动作的安全约束。
 
@@ -180,16 +191,16 @@ MD5 摘要；配置项不保存明文，但该摘要仍可直接用于认证，�
 避免偶发显示 `Custom element doesn't exist` 配置错误。
 `0.2.6b15` 修复集成在 Home Assistant 启动过早或已运行后加载、重载时没有再次注册
 Lovelace 卡片资源的问题，避免录像回放卡片和门锁卡片同时显示 `Custom element doesn't exist`。
-在 HACS 更新到 **v0.2.6b17**，重启 Home Assistant 后强制刷新浏览器即可。
-详见 [本版说明](docs/releases/0.2.6b17.md)。
+在 HACS 更新到 **v2.0.0b0**，重启 Home Assistant 后强制刷新浏览器即可。
+抓拍修复的历史记录见 [0.2.6b17 说明](docs/releases/0.2.6b17.md)。
 
 `0.2.6b14` 修复升级后资源地址可能回退、需要删除并重新添加 JavaScript 资源的问题：
 Home Assistant 启动完成后再次核对并原地更新资源，保留资源条目与卡片配置。
 同时修正抓拍解析参数与媒体引用路径，使用集成独立的鉴权媒体源读取现有图片和录像，
 无需配置 `media_dirs` 或搬动已保存的文件。
-在 HACS 更新到 **v0.2.6b14**，**重启 Home Assistant 后强制刷新浏览器**。
+这些修复已包含在 **v2.0.0b0** 中，升级后重启 Home Assistant 并强制刷新浏览器。
 本地回归与模拟浏览器验证已通过，实际 HA 升级后的资源更新和抓拍读取仍需设备确认。
-详见 [本版说明](docs/releases/0.2.6b14.md)。
+详见 [0.2.6b14 历史说明](docs/releases/0.2.6b14.md)。
 
 `0.2.6b12` 补齐旧式门锁的 `battery_power` 电量字段，兼容 `deviceType=300`、
 `subDeviceType=400` 的 5 号干电池门锁；用户诊断中的库存和 6 次实时推送回放均读出 60%。
@@ -259,6 +270,10 @@ device_id: w-example-door-lock-id
 ```text
 custom_components/orvibo_smart_control/
   capabilities.py       设备分类、平台和可用通道
+  device_types.py       复合身份分类与验证标记
+  protocol_profiles.py  型号对应的原生控制刻度及协议转换
+  protocol.py           readtable 归一化与身份元数据
+  device_inventory.py   库存初始化和周期快照合并
   device_selection.py   配置流中的名称/类型动态分组与选择合并
   coordinator.py        Home Assistant 生命周期及双通道编排
   lan/                  网关发现、认证、TCP 会话和控制适配
@@ -270,17 +285,22 @@ custom_components/orvibo_smart_control/
   control_executor.py   通道选择、执行和单次云回退
   runtime_options.py    上下线通知和可选更新检查
   lock_* / temp_*       门锁事件、媒体与临时密码
-  www/                  内置门锁卡片
+  www/                  门锁、临时密码和录像回放卡片
 ```
 
 项目使用标准库 `unittest` 运行不依赖完整 Home Assistant 的测试，并由 CI 执行语法、
 身份、HACS 和 hassfest 校验。参与开发前请阅读 [贡献指南](CONTRIBUTING.md)。
 
+`2.0` 重构最近一次 Python 3.12 离线测试运行 812 项，810 项通过、2 项因缺少 FFmpeg
+跳过；自动化结果不代替新协议分支的真机验证。详细边界见协议重构文档。
+
 ## 文档索引
 
 | 文档                                          | 面向读者         | 内容                               |
 | --------------------------------------------- | ---------------- | ---------------------------------- |
-| [设备支持矩阵](docs/DEVICE_SUPPORT.md)        | 用户、设备贡献者 | 已验证型号、通道和限制             |
+| [完整文档索引](docs/README.md)               | 所有人           | 使用指南、协议依据、审计和历史版本 |
+| [2.0 协议重构](docs/protocol-profiles-2.0.md) | 开发者、设备贡献者 | 原生刻度、RF 窗帘和离线验证边界 |
+| [设备支持矩阵](docs/DEVICE_SUPPORT.md)        | 用户、设备贡献者 | 支持型号、证据等级、通道和限制     |
 | [服务与事件参考](docs/SERVICES_AND_EVENTS.md) | 自动化作者       | 服务字段、响应和事件载荷           |
 | [迁移指南](docs/MIGRATION.md)                 | 现有集成用户     | 独立域迁移、去重和回退             |
 | [运行时架构](FUSION_DESIGN.md)                | 维护者           | 数据流、路由、状态合并和 ADR       |

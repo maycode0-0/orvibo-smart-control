@@ -33,6 +33,7 @@ GitHub Security Advisory 私密报告功能联系维护者 `maycode0-0`；如果
 - HomeMate/智家 365 账号、手机号和明文密码；
 - 云账号和独立 MixPad LAN 密码的大写 MD5 摘要；它们可直接用于协议认证，安全等级等同密码；
 - access token、session ID、session key、dynamic key、cookie 和 OAuth 参数；
+- Meari 外部授权、厂商用户 token、hostKey 与独立视频密码；
 - COS 临时密钥、security token、签名媒体 URL 和私人对象键；
 - 临时门锁密码、授权 ID 与真实用户映射；
 - Home Assistant 长期令牌、备份、`.storage` 内容和完整诊断包。
@@ -80,10 +81,22 @@ Home Assistant 自动化跟踪、通知历史和第三方日志仍可能记录�
 
 事件媒体保存在 Home Assistant 的 `media/orvibo_smart_control/` 下，并可能短暂出现在带签名
 的 URL 中。媒体可能包含人脸、门牌、室内环境和访问时间，应纳入备份加密、访问控制与保留
-策略。默认历史保留 7 天并每周清理一次，可通过 `cleanup_history` 调整。
+策略。录像默认保留 7 天并每周清理一次；抓拍按设备保留最近配置数量（默认 30 张，
+范围 1–500），自动按天清理不删除保留中的抓拍。手动 `cleanup_history` 可显式清理媒体。
+
+普通 Meari 摄像机/NVR 的实时与回放通过私有会话连接设备，转码出口只绑定
+`127.0.0.1` 并由 HA Stream 提供访问。厂商凭据不放入播放 URL、子进程命令行或诊断返回；
+首帧诊断不保存画面。视频连接本身不自动归档，用户主动录像仍受 HA 的访问权限约束。
 
 通用配置中的本地清理只删除上述集成媒体目录，并可重置通用选项。它不会删除账号、家庭、
 设备选择、门锁用户映射、实体注册或 Home Assistant `.storage`，也不会操作其他集成目录。
+
+## 协议支持与验证边界
+
+`2.0` 新增的 116、虚拟 MixPad 调光和明确 RF 34/35 分支依据静态逆向与离线测试启用
+有限控制，`hardware_verified` 保持 false。型号目录命中不会自动授予控制；未知身份
+不因此得到推测命令。RF 窗帘只公开开、关、停，不推测位置或关闭状态。
+具体条件见 [设备支持矩阵](docs/DEVICE_SUPPORT.md) 与 [协议重构说明](docs/protocol-profiles-2.0.md)。
 
 ## 可选外部通知
 
@@ -113,5 +126,5 @@ git grep -n -I -E "accessToken|sessionKey|sessionId|password|phone|familyId|devi
 ## 依赖与发布
 
 运行时依赖以 `manifest.json` 为准。提交不得引入未固定来源的可执行文件、提交真实云端响应、
-绕过 HACS/hassfest 校验，或把测试凭据写入 workflow。发布包应只包含组件运行所需文件，项目
+绕过 HACS/hassfest 校验，或把测试凭据写入 workflow。发布包应只包含组件运行所需文件。
 项目名称、仓库地址和集成域由 manifest、HACS 元数据、CI 校验与代码审查共同维护。

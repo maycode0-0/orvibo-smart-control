@@ -4,6 +4,19 @@
 把请求发送给错误的家庭。可以在“设置 -> 设备与服务 -> ORVIBO Smart Control”中找到
 配置项 ID。
 
+本文覆盖 `2.0.0b0`。新增的原生调光和 RF 窗帘使用 HA
+标准实体动作，没有新增集成专用服务；完整支持条件见 [设备支持矩阵](DEVICE_SUPPORT.md)。
+
+## 灯光与窗帘标准动作
+
+原生调光灯使用 `light.turn_on` 的 `brightness`（HA 0–255），由路由转换为设备刻度；
+亮度为 0 执行关闭，调用者不应自行填入原生 `value2`。
+
+明确为 RF 的 34/35 窗帘只支持 `cover.open_cover`、`cover.close_cover`、
+`cover.stop_cover`。它们没有位置滑块，`cover.set_cover_position` 不受支持；
+位置与关闭状态保持未知。非 RF 窗帘继续按既有能力提供位置操作。
+静态协议和数值约定见 [2.0 协议重构](protocol-profiles-2.0.md)。
+
 ## 服务总览
 
 | 服务                   | 用途                           | 响应                                  |
@@ -16,9 +29,37 @@
 | `grant_temp_password`  | 创建门锁临时授权               | 新授权元数据；仅本次响应含 `password` |
 | `revoke_temp_password` | 删除指定临时授权               | `ok`、`authorized_id` 或 `error`      |
 | `list_temp_passwords`  | 读取服务器端授权元数据         | 按设备 ID 分组；不含密码              |
+| `inspect_video_session` | 检查 Meari 外部授权响应      | 字段存在状态和固定阶段                |
+| `inspect_video_devices` | 查询厂商设备列表            | 数量、分类和有限能力码                |
+| `inspect_video_channels` | 查询 NVR 通道云端快照      | 容量、实际通道和有限状态码            |
+| `probe_video_stream`  | 限时连接指定通道并检查编码首帧 | 阶段、帧/字节计数；不执行解码         |
+| `search_hdd_recordings` | 查询硬盘/存储卡日期或片段   | `stage`、`recording_days` 或 `fragments` |
+| `start_hdd_playback` | 选择回放起始时间               | `playback_selected`，不表示已收到录像 |
+| `stop_hdd_playback` | 关闭对应回放连接                | `playback_stopped` 或失败阶段         |
 
 带响应的服务使用 Home Assistant 的可选响应机制。自动化需要读取结果时，设置
 `response_variable`。
+
+## 视频诊断与录像回放
+
+`inspect_video_session`、`inspect_video_devices`、`inspect_video_channels` 接受可选
+`entry_id`、`country_code`（默认 `CN`）、`phone_code`（默认 `"86"`）及 `language`
+（默认 `zh`）。多配置项时需选择一个有效配置项，且必须有云连接。
+`probe_video_stream` 还要求 `device_index` 与 `channel_id`，可设置
+`timeout_seconds`（10–60，默认 35）。索引取自最新库存，不作为持久设备身份。
+完整阶段与限制见 [录像机诊断指南](nvr-video-diagnostics.md)。
+
+回放动作通过 `entity_id` 选择本集成的硬盘或存储卡回放 camera，无需另填 `entry_id`：
+
+| 动作 | 参数 |
+| --- | --- |
+| `search_hdd_recordings` | `entity_id`、`date`；`operation=month/day`（默认 day），日期分别为 `YYYYMM` / `YYYYMMDD` |
+| `start_hdd_playback` | `entity_id`、`date=YYYYMMDDHHmmss`；选择后打开对应 camera 才开始建连 |
+| `stop_hdd_playback` | `entity_id`；停止回放与转码，实时实体独立 |
+
+日期按设备日历填写，不转换 HA 时区。硬盘与 SD/TF 查询/回放已实现，尚待实机验证；
+诊断成功、ACK 或 `playback_selected` 均不证明实际播放。卡片与操作示例见
+[录像回放](meari-hdd-playback.md)，实时画面见 [Meari 实时摄像头](meari-live-video.md)。
 
 ## 刷新与用户映射
 

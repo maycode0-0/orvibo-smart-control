@@ -1,8 +1,12 @@
 # 录像机视频接入诊断
 
-目前普通摄像机和 NVR 仍只有诊断传感器，没有实时播放或录像机硬盘回放实体。
-0.2.6b3 增加限时媒体连接和编码首帧探测，使用下文的 `probe_video_stream`。
-`inspect_video_session` 是开发诊断入口，不是播放功能修复。
+当前匹配的 Meari XTS/p2p=2 摄像机与 NVR 已提供实时和录像回放实体；其他 SDK 仍只有
+诊断。NVR 1 号实时画面已有用户确认，3 号等待后可看；硬盘与 SD/TF 查询和回放尚待
+实机验证。观看步骤见 [实时视频](meari-live-video.md) 与 [录像回放](meari-hdd-playback.md)。
+
+以下按引入版本整理诊断动作，安装时使用 `v2.0.0b0` 或后续适用版本并重启 HA。
+`2.0.0b0` 沿用这些动作，不新增视频验证结论。`inspect_video_session` 只检查
+授权响应结构，`probe_video_stream` 只执行限时编码首帧探测，二者都不是播放成功的证明。
 
 它复用本集成已连接的欧瑞博云端会话，按 HomeMate APK 的 `cmd=148` 请求
 Meari 外部授权。结果仅包含字段是否存在和阶段，不返回用户信息、token、hostKey、
@@ -61,8 +65,9 @@ data: {}
 `inventory_shape` 区分 App 使用的顶层分类结构与 `result` 包装结构；不返回任意服务端键。
 输出最多 512 条，超过时 `devices_truncated` 为 true，`device_count` 仍为总行数。
 
-NVR 通道来自 App 后续的设备参数查询，不是简单的设备库存字段。因此本版始终返回
-`channel_query_implemented: false`。`nct` 等能力码不能直接解释为实际在线通道数，
+NVR 通道来自 App 后续的设备参数查询，不是简单的设备库存字段。因此设备列表动作返回
+`channel_query_implemented: false`；需另用下文 `inspect_video_channels`。
+`nct` 等能力码不能直接解释为实际在线通道数，
 这一步也不能证明首帧或硬盘回放可用。请提供完整动作返回的脱敏 JSON 继续排查。
 
 ## NVR 通道诊断（0.2.6b2）
@@ -71,7 +76,7 @@ NVR 通道来自 App 后续的设备参数查询，不是简单的设备库存�
 `nvr-neutral` 录像机，两者 `iotType=3`。SDK 对这类设备使用 XTS 认证，并从序列号
 生成连接 UUID，因而 `uuid_present=false` 本身不阻止该路径。此结论没有验证媒体连接。
 
-安装 `v0.2.6b2`（普通 GitHub Release，无需启用预发布），重启后运行：
+该动作从 `v0.2.6b2` 起提供，当前版本无需启用预发布；安装并重启后运行：
 
 ```yaml
 action: orvibo_smart_control.inspect_video_channels
@@ -100,7 +105,7 @@ data: {}
 
 ## 指定通道媒体测试（0.2.6b3）
 
-安装普通 Release `v0.2.6b3` 后重启 Home Assistant，先测试已发现的录像机 1 号通道：
+该动作从普通 Release `v0.2.6b3` 起提供；先测试最新列表中已发现的录像机 1 号通道：
 
 ```yaml
 action: orvibo_smart_control.probe_video_stream
@@ -147,18 +152,20 @@ data:
 鉴权只尝试 App 默认 hostKey 模式；若已明确返回独立视频密码状态，则拒绝该模式。
 App 也可能把视频密码状态存在手机本地，所以字段缺失不表示已证明没有视频密码。
 
-## 当前证据与下一阶段
+## 当前证据与验证边界
 
 用户目标是 HAOS 虚拟机/x86 Linux 宿主上的实时画面和录像机硬盘历史。
 APK 的 Android ARM 原生视频库不能直接用于此环境。公开 MIT 项目
 [Ha-CloudEdge-Meari](https://github.com/ajeanney/Ha-CloudEdge-Meari/tree/5bc9f97766c3d8076da8bb15dcb7b62ca7721127)
 提供了可参考的 Python P2P 实时协议；其当前代码没有 NVR 硬盘索引、回放和定位实现。
 已收到用户真实 NVR 1 号通道的 HEVC 关键帧及参数集（153,474 字节、144 个网络包）。
-这确认了指定通道的编码接收，尚未证明真实连续播放或硬盘回放。
+这确认了指定通道的编码接收；后续另有用户确认 1 号实时画面可看、3 号等待后可看，
+仍未取得硬盘或 SD/TF 回放成功结果。
 
 外部会话、库存及 NVR 通道查询已获得用户环境成功返回。
-接下来由新动作验证一个通道的媒体首帧，再接入解码和播放出口；硬盘片段检索、播放及定位仍需独立实现。
-此探测结果不会改变 `stream_supported=False`。
+媒体首帧、解码/播放出口与普通硬盘/存储卡查询和按时间回放均已有代码。
+真实录像列表、定位精度与播放流畅度仍需设备验证。
+探测结果不会改变静态 SDK 识别诊断中的 `stream_supported=False`，也不替代动态播放验证。
 
 
 ## 实时摄像头（0.2.6b4）
@@ -171,6 +178,7 @@ APK 的 Android ARM 原生视频库不能直接用于此环境。公开 MIT 项�
 
 `video_stage` 是当前连接阶段（idle/starting/connecting/transcoding/streaming等固定值）。
 `streaming` 表示转码器已有输出，不单独证明浏览器成功显示。请反馈能否看到实际画面、
-1/3号各自情况，以及关闭后重新打开是否恢复。音频、硬盘历史和设备时间轴暂未接入。
+1/3号各自情况，以及关闭后重新打开是否恢复。当前无音频；硬盘与存储卡历史通过独立
+回放实体和卡片提供，不在实时实体中切换设备时间轴。
 
 实现与限制见 [实时视频](meari-live-video.md)。

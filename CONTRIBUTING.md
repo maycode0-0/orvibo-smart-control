@@ -20,28 +20,33 @@
 
 ## 开发环境
 
-建议使用 Python 3.11。项目的大部分测试通过轻量 stub 加载模块，不需要安装完整
-Home Assistant。
+使用 Python 3.12 和 Node.js 22，与当前 CI 一致。项目的大部分测试通过轻量 stub 加载
+模块，不需要安装完整 Home Assistant；媒体测试另需 PyAV 与 FFmpeg。
 
 使用 `uv` 运行与当前验证一致的隔离环境：
 
 ```powershell
-uv run --isolated --python 3.11 `
-  --with "aiohttp>=3.9,<4" `
-  --with "cryptography>=41,<46" `
-  --with "voluptuous>=0.13,<1" `
+uv run --isolated --python 3.12 `
+  --with "aiohttp>=3.9.0" `
+  --with "cryptography>=41.0.0" `
+  --with "voluptuous>=0.13.1" `
+  --with "pycryptodome==3.23.0" `
+  --with "av>=13.0.0,<20.0.0" `
   python -B -m unittest discover -s tests -q
 ```
 
 也可以在专用虚拟环境安装最小依赖：
 
 ```bash
-python -m pip install "aiohttp>=3.9,<4" "cryptography>=41,<46" "voluptuous>=0.13,<1"
+python -m pip install "aiohttp>=3.9.0" "cryptography>=41.0.0" "voluptuous>=0.13.1" "pycryptodome==3.23.0" "av>=13.0.0,<20.0.0"
 python -B -m unittest discover -s tests -q
 ```
 
 从远端默认分支创建主题分支。分支名建议使用 `feat/`、`fix/`、`docs/` 或 `test/` 前缀。
 不要提交真实账号数据、审计输出、IDE 缓存或 Home Assistant 配置目录。
+
+当前 `2.0` 是协议重构分支，版本线从 `2.0.0b0` 开始，上一版本基线为 `0.2.6b17`。
+后续新增变更写入 `Unreleased`。范围与证据见 [2.0 协议重构](docs/protocol-profiles-2.0.md)。
 
 ## 理解调用链
 
@@ -74,11 +79,15 @@ codegraph sync .
 2. `capabilities.py` 根据 profile 和 type 决定 HA platforms、可用控制 channel、
    `status_only` 与 `cloud_only`。
 
+`protocol_profiles.py` 另按具体身份选择 wire 刻度和 RF 动作，不执行 I/O，也不绕过能力表。
+
 新增设备时还要检查 `const.py`、`protocol.py` 和对应平台的兼容映射。分类正确但平台映射
 缺失，会形成“已识别但没有实体”；平台映射过宽，则可能把未知设备错误注册为可控设备。
 
-`hardware_verified` 是类别级证据。给同类别增加型号不会自动证明新硬件已经验证。官方目录
-命中也只代表产品名称可识别。
+既有 `hardware_verified` 主要来自类别级历史证据，不证明该类别的每个型号已验证。
+`2.0` 新增的 116、虚拟 MixPad 调光和 RF 34/35 分支明确保留
+`hardware_verified=false`、`registration_only=false`：有限静态支持与真机确认分别记录。
+官方目录命中只代表产品名称可识别，不授予控制能力。
 
 ### 状态解析
 
@@ -92,11 +101,15 @@ codegraph sync .
 - LAN 与 SSL 对同一设备复用同一解析语义。
 
 新增类别后在 `parsers/__init__.py` 注册，并覆盖正常值、边界值、缺失值、错误类型和部分
-更新。
+更新。原生类型 0/116 和其中虚拟 MixPad 的初始化、云刷新、SSL/LAN 推送复用
+`parse_native_dimmer`，内部亮度保留协议刻度，路由/实体负责 HA 0–255 转换。
+保留有效的 `raw_value3/raw_value4`，缺失及负哨兵不覆盖已知值；量化取整属于协议语义，
+测试应断言对应刻度，不能要求所有 HA 亮度精确往返。
 
 ### 控制与传输
 
-设备控制语义放在 `control.py` 和 `control_router.py`。`control_executor.py` 负责选择通道、
+设备控制语义放在 `control.py`、`control_router.py` 与纯转换层 `protocol_profiles.py`。
+`control_executor.py` 负责选择通道、
 单次云回退和乐观状态；`lan/control_adapter.py` 只把规范调用翻译成网关 payload。
 
 新增控制时说明：
@@ -138,6 +151,7 @@ codegraph sync .
 - Wi-Fi、Zigbee、蓝牙或其他接入方式；
 - 是否依赖网关以及网关商品型号；
 - `deviceType`、`subDeviceType`、`classId`、`statusType`、`ui.model`、`model`；
+- `appDeviceId`、`deviceFlag`、`isRFCurtain`、`combinedCode`（有提供时保留，标识值须脱敏）；
 - App 中可见的全部能力。
 
 ### 状态样本
@@ -147,7 +161,8 @@ codegraph sync .
 
 ### 控制样本
 
-每项能力验证正向、反向和边界操作。例如窗帘应包含开、关、停止和中间位置；调光设备应
+每项能力验证正向、反向和边界操作。例如非 RF 位置窗帘应包含开、关、停止和中间位置；
+RF 窗帘只验证开、关、停，并确认 HA 不显示位置滑块或猜测关闭状态。调光设备应
 包含最小、中间、最大值；暖通设备应覆盖所有模式与风速。一次完整证据包含：
 
 ```text
@@ -226,6 +241,7 @@ python tools/generate_known_device_catalog.py \
 | readtable 归一化    | `test_protocol.py`                                                                       |
 | 状态字段            | `test_state_parsers.py` 或设备专用测试                                                   |
 | 控制语义            | `test_control.py`、`test_control_router.py`                                              |
+| 原生刻度 / RF 档案  | `test_protocol_profiles.py`、`test_native_profile_integration.py`                        |
 | transport 选择      | `test_control_transport.py`、`test_control_executor.py`、`test_coordinator_transport.py` |
 | 通用配置/运行时选项 | `test_config_flow_reauth.py`、`test_runtime_options.py`                                  |
 | 设备传输诊断实体    | `test_transport_sensor.py`、`test_capabilities.py`、`test_control_transport.py`          |
@@ -233,7 +249,7 @@ python tools/generate_known_device_catalog.py \
 | ID 匹配/实时分发    | `test_status_dispatcher.py`                                                              |
 | 门锁事件/媒体/密码  | `test_lock_manager.py`、`test_lock_media_manager.py`、`test_temp_password_manager.py`    |
 | 服务公开边界        | `test_service_handlers.py`、`test_video_archive.py`                                      |
-| 项目命名            | `test_project_identity.py`、身份检查脚本                                                 |
+| 发布脚本与版本      | `test_release_workflow.py`                                                              |
 
 提交前至少执行：
 
@@ -241,11 +257,15 @@ python tools/generate_known_device_catalog.py \
 python -B -m unittest discover -s tests -q
 python -B -m compileall -q custom_components tests tools
 node --check custom_components/orvibo_smart_control/www/orvibo-smart-control-door-lock-card.js
+node --check custom_components/orvibo_smart_control/www/orvibo-smart-control-nvr-card.js
 git diff --check
 ```
 
 结构性改动还应运行 `codegraph sync .`。CI 会进一步执行 HACS validation 和 Home Assistant
 hassfest。测试 fixture 必须最小化、稳定且不可逆脱敏。
+
+`2.0` 最近一次 Python 3.12 全量离线结果：812 项，810 项通过、2 项因缺少 FFmpeg 跳过。
+记录实际环境与跳过原因；新增协议模块和新增测试的 Ruff 检查通过，不代表全库 Ruff 清洁。
 
 ## 文档与版本
 
@@ -256,6 +276,8 @@ hassfest。测试 fixture 必须最小化、稳定且不可逆脱敏。
 | 新型号或能力         | `docs/DEVICE_SUPPORT.md`                                |
 | 服务、事件或卡片     | `docs/SERVICES_AND_EVENTS.md`、`services.yaml`          |
 | 传输或状态语义       | `FUSION_DESIGN.md`、README 通道摘要                     |
+| 型号刻度 / 原生协议  | `docs/protocol-profiles-2.0.md`、设备矩阵、架构与对应回归 |
+| 新增文档             | `docs/README.md` 索引，并检查相对链接                   |
 | 跨域或配置变化       | `docs/MIGRATION.md`                                     |
 | 凭据、媒体或网络边界 | `SECURITY.md`                                           |
 | 通用配置入口或默认值 | README 配置表、三份 config flow 翻译、相关架构/安全文档 |
@@ -269,8 +291,8 @@ hassfest 全部通过后，根据 `manifest.json` 中的版本检查并补建 `v
 `orvibo-smart-control.zip` 并发布 GitHub Release。发布不再依赖与上一个提交比较版本，因此
 上次失败后，同版本的后续推送也能补齐缺失的标签、Release 或 ZIP。
 
-版本发布遵循仓库根目录 `AGENTS.md` 的约定：默认使用 `0.x.ybN` 临时诊断版本；只有用户
-明确要求“发布正式版”时，才使用 `0.x.y` 稳定版本。两种版本都发布为普通 GitHub
+版本发布遵循仓库根目录 `AGENTS.md` 的约定：以用户指定的 `2.0` 为基础，默认使用
+`2.0.0bN` 临时诊断版本；只有用户明确要求“发布正式版”时，才使用 `2.0.0` 稳定版本。两种版本都发布为普通 GitHub
 Release / Latest，不能设置 `Pre-release`，以保证 HACS 识别更新。已有标签保持原来的提交，
 缺失 ZIP 时从标签对应的代码打包；新 Release 先保存为草稿，ZIP 上传成功后才公开。要发布
 标签之后的新代码，必须先递增 manifest 版本号。手动推送版本标签、在 `main` 运行

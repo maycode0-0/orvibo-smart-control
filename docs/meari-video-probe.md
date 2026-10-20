@@ -3,7 +3,9 @@
 适配依据为用户提供的 HomeMate 5.2.6.307 APK，SHA256
 `6ea3f3eff41ad4657ca437d10c79022949a1f080af857a8800dc6b6819abac8c`，
 以及固定 MIT 参考 [Ha-CloudEdge-Meari](https://github.com/ajeanney/Ha-CloudEdge-Meari/tree/5bc9f97766c3d8076da8bb15dcb7b62ca7721127)。
-vendor 的归属、许可和改动范围位于 `meari_transport/vendor/ORIGIN.md` 和 `LICENSE`。
+vendor 的归属、许可和改动范围见
+[ORIGIN.md](../custom_components/orvibo_smart_control/meari_transport/vendor/ORIGIN.md) 与
+[vendor LICENSE](../custom_components/orvibo_smart_control/meari_transport/vendor/LICENSE)。
 
 ## APK 静态依据
 
@@ -46,8 +48,12 @@ HTTP清单响应在开始媒体连接前释放。同一配置项只允许一次�
 `encoded_video_verified` 只确认编码帧封装、NAL基本头部/长度、必要参数集与随机访问帧类型；
 H.264支持IDR，HEVC支持IRAP16–21。它不是完整RBSP/参数关联校验，更不是解码成功。
 首帧动作自身不解码。0.2.6b4 新增独立的连续收流与 HA 播放出口，见 [实时视频](meari-live-video.md)；
-硬盘目录检索和回放仍未开放。
+硬盘与 SD/TF 日期/片段查询和回放已另行实现，尚待实机验证；见
+[录像回放](meari-hdd-playback.md)。这些能力不属于首帧探测动作。
 客户端 `5.2.6.307a13` 的Android后缀是模拟选择，root发现协议版本15259来自参考实现，已在用户的 1 号通道收到 HEVC 关键帧；其他设备兼容性未据此确认。
 
 用户真实证据：NVR index=2/channel=1，HEVC，153474字节，144包，参数集与关键帧齐全；
 encoded_video_verified=true、decoded=false，探测结束已停止worker。它不等于 HA 连续播放成功。
+
+后续用户已确认 NVR 1 号实时画面可看、3 号等待后可看，记录见实时视频指南。
+这一独立反馈不改变首帧动作的 `decoded=false`，也不能证明硬盘回放或其他型号兼容。

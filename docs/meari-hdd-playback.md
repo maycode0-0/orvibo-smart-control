@@ -6,7 +6,7 @@
 
 ## 打开回放
 
-1. 在 HACS 更新到 `v0.2.6b8`，重启 Home Assistant，强制刷新浏览器。
+1. 在 HACS 更新到 `v2.0.0b0` 或后续适用版本，重启 Home Assistant，强制刷新浏览器。
 2. 编辑仪表盘 → 添加卡片 → 搜索“欧瑞博录像回放”。也可添加手动卡片：
 
    ```yaml
@@ -40,7 +40,7 @@ grid_options:
 尚未注册。可在“设置 → 仪表盘 → 右上角菜单 → 资源”（需开启高级模式）添加：
 
 ```text
-/orvibo_smart_control/www/orvibo-smart-control-nvr-card.js?v=0.2.6b8
+/orvibo_smart_control/www/orvibo-smart-control-nvr-card.js?v=2.0.0b0
 ```
 
 类型选“JavaScript 模块”，保存后强制刷新。YAML 资源模式则在 `lovelace.resources`
@@ -48,9 +48,9 @@ grid_options:
 上述路径：应返回 JavaScript 源码；若为404，请检查实际安装版本及 HA 日志中
 “欧瑞博卡片静态资源注册失败”的记录。
 若没有回放实体，请检查集成设备选择中已勾选 S1 或录像机。S1 的通道 0 是内部协议编号，
-卡片显示设备名称；NVR 实体随在线通道创建。更新到 b8 后重启 HA 才会增加 S1 回放实体。
-此前如果手动注册过 b7 卡片资源，可把原条目的 URL 更新为：
-`/orvibo_smart_control/www/orvibo-smart-control-nvr-card.js?v=0.2.6b8`，避免保留重复旧条目。
+卡片显示设备名称；NVR 实体随在线通道创建。从 b8 之前升级时，重启 HA 后才会增加 S1
+回放实体。手动注册过旧版资源时，更新原条目，避免重复；正常自动注册使用脚本内容
+哈希刷新缓存，上面的版本参数仅用于手动排障。
 
 日期和时间采用**摄像机或录像机本身的日历时间**，不自动按 HA 时区换算。日列表最多展示
 256 个有效片段，超过时会提示截断；仍可指定时间播放。
@@ -95,3 +95,6 @@ date: "20261015090000"
 离线验证涵盖原生命令字节、隧道请求/回复序号、日历/片段解析、回放媒体类型及
 结束标记、取消清理、实体切换和卡片交互。真实硬盘和存储卡录像的查询结果、播放流畅度与
 定位精度需要用户测试。
+
+相关资料：[实时视频](meari-live-video.md)、[诊断指南](nvr-video-diagnostics.md)、
+[原生录像协议](meari-hdd-protocol.md)。`2.0` 的调光/RF 重构不改变这里的真机验证边界。

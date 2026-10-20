@@ -2,6 +2,9 @@
 
 本文描述 `orvibo-smart-control` 当前已经实现的结构、数据流和架构决策。行为以`custom_components/orvibo_smart_control/` 中的代码和自动化测试为准。
 
+本文覆盖 `2.0` 分支的协议重构，发布版本为 `2.0.0b0`，上一版本基线为 `0.2.6b17`。
+原生转换的公式与静态证据见 [2.0 协议重构](docs/protocol-profiles-2.0.md)。
+
 ## 系统边界
 
 项目同时面对三类外部系统：
@@ -37,8 +40,11 @@ flowchart TD
     GWM --> LAN[Authenticated LAN TCP sessions]
 
     INV --> PROFILE[Device profiles and capabilities]
+    PROFILE --> WIRE[Native protocol profiles]
     PROFILE --> ENT[HA entity platforms]
     ENT --> ROUTER[Control router]
+    WIRE --> ROUTER
+    WIRE --> PARSE
     ROUTER --> EXEC[Control executor]
     EXEC --> LAN
     EXEC --> SSL
@@ -60,6 +66,7 @@ flowchart TD
 | ---------------------------------- | ----------------------------------------------------- | ------------------- |
 | `https_client.py`、`protocol.py`   | 云登录、readtable、原始记录归一化                     | 选择 LAN/云控制通道 |
 | `device_types.py`                  | 从复合协议字段识别设备类别和验证状态                  | 网络 I/O            |
+| `protocol_profiles.py`              | 将 APK 逆向确认的型号字段转换为 wire 控制值            | 网络 I/O、实体状态   |
 | `device_selection.py`              | 按实际名称和类型动态生成配置流设备分组并合并选择      | 改变设备能力        |
 | `capabilities.py`                  | 类别对应平台、只读/云专属标记、控制通道               | 构造具体设备命令    |
 | `device_inventory.py`              | 设备过滤、初始化和周期云快照合并                      | 实时连接管理        |
@@ -72,6 +79,8 @@ flowchart TD
 | `lock_manager.py`                  | 门锁事件归一化、去重和开锁/开门关联                   | 媒体下载            |
 | `lock_media_manager.py`            | 签名 URL、截图、录像、历史和清理                      | 门锁状态分类        |
 | `temp_password_manager.py`         | 授权创建、撤销、查询和回收                            | 暴露持久密码实体    |
+| `meari_session.py`、`meari_probe.py` | 厂商授权、库存/通道诊断及限时编码首帧探测             | 宣称实际播放成功    |
+| `meari_live.py`、`meari_hdd.py`、`meari_transport/` | XTS 收流、录像查询/回放、协议子进程与转码生命周期 | MixPad 设备控制     |
 | `coordinator.py`                   | 组合以上组件并对接 HA 生命周期                        | 重复实现子模块规则  |
 
 ## 配置项生命周期
@@ -104,28 +113,35 @@ flowchart TD
 
 ## 设备分类与能力
 
-设备不能只靠一个数字分类。运行时优先使用完整记录中的 `deviceType`、`subDeviceType`、
-`classId`、`statusType`、`ui.model` 和官方目录型号。处理顺序是：
+设备不能只靠一个数字分类。运行时使用完整记录中的 `deviceType`、`subDeviceType`、
+`classId`、`statusType`、`ui.model` 和官方目录型号；`appDeviceId`、`deviceFlag`、
+`isRFCurtain`、`combinedCode` 等身份元数据随库存保留。处理顺序是：
 
 ```text
 raw cloud record
   -> normalized device fields
-  -> DeviceProfile(category, verified, hidden, registration_only)
+  -> DeviceProfile(category, hardware_verified, registration_only)
   -> DeviceCapability(platforms, channels, status_only, cloud_only)
   -> platform registration and transport policy
+
+normalized identity -> ProtocolProfile -> wire encoding / state decoding
 ```
 
 能力表的关键集合：
 
 | 策略         | 当前值                                               |
 | ------------ | ---------------------------------------------------- |
-| LAN 可控类型 | `0, 1, 34, 35, 36, 38, 81, 102, 501, 502, 503, 516`  |
+| LAN 可控类型 | `0, 1, 34, 35, 36, 38, 81, 102, 116, 501, 502, 503, 516` |
 | 云专属类型   | `52, 107, 522`                                       |
 | 类型级只读   | `107`                                                |
 | 分类级只读   | 人体、温湿度、门窗、烟雾、紧急按钮、水浸、燃气、门锁 |
 
 `300` 必须结合子类型：`481` 是可控地暖，`491` 是只读温湿度传感器，因此没有加入
-类型级云专属集合。未知或未验证类别使用 `registration_only`，可以登记但不返回控制通道。
+类型级云专属集合。未知且没有明确控制证据的档案使用 `registration_only`，可以登记但不返回控制通道。
+
+`2.0` 对 116、类型 0/116 中的虚拟 MixPad 调光器、明确标记为 RF 的 34/35 窗帘启用
+静态协议支持：`registration_only=false`、`hardware_verified=false`。普通类别已有的历史
+真机标记不适用于这些新增分支；公开目录命中本身也不授予控制能力。
 
 详细设备清单见 [设备支持矩阵](docs/DEVICE_SUPPORT.md)。
 
@@ -146,8 +162,16 @@ if mode == LAN_ONLY:
 return await cloud_ssl_client.execute(action)
 ```
 
-LAN adapter 复用云端调用的方法签名，再翻译成网关 payload。这样开关极性、亮度范围、
-窗帘位置和暖通枚举只在规范层维护一次。
+LAN adapter 复用云端调用的方法签名，再翻译成网关 payload。`protocol_profiles.py`
+根据具体身份提供原生亮度和 RF 动作，路由完成 HA 输入转换；SSL 与 LAN 使用同一封包
+生成器，避免两个传输分别猜测刻度或开关极性。
+
+原生调光类型 0 使用带偏移的 253 刻度，116 使用 120 刻度；虚拟 MixPad 编码使用
+255 刻度，回读保留原生函数先检查 116 的顺序。已知 `value3/value4` 随命令保留，
+虚拟 MixPad 的 `value4` 按原生规则置零。HA 亮度 0 转为关闭命令。
+
+RF 34/35 的开、关、停为 `rf control` 的 `380000/380001/380002`。实体只公开这些
+动作，拒绝精确位置请求；位置和 `is_closed` 为未知，成功发送也不推测电机已到位。
 
 ### 单次回退
 
@@ -170,7 +194,10 @@ LAN 与 SSL 的 serial、pending request 和 response correlation 相互隔离�
 LAN 与云端实时报文先由 `status_dispatcher.py` 匹配设备 ID/UID，再交给同一组 `parsers/`
 生成最小字段补丁。解析器只更新报文明示的字段，部分推送不会清空其他属性。
 
-调光灯的初始化和周期云快照同样经过灯光解析器，按设备类型保留百分比或 0–255 的亮度单位。
+调光灯的初始化和周期云快照同样经过灯光解析器。原生类型 0/116 使用共享的
+`parse_native_dimmer`，内部 `brightness` 始终保存协议刻度，HA 0–255 只出现在输入/输出
+边界；虚拟 MixPad 同样按其原生分支处理。其他灯型沿用既有百分比或 0–255 约定。
+`raw_value3/raw_value4` 只保存有效模式字段，`-1` 哨兵及缺失字段不覆盖有效值。
 负数、非数值和非有限亮度视为未知，不覆盖最近有效亮度，也不推断为关灯；首次没有有效读数
 时亮度为未知。有效的零亮度仍按对应设备协议解析，实体输出和控制路径另做数值校验。
 
@@ -243,9 +270,10 @@ TLS reader 意外退出时立即清除连接标志并释放待响应请求，再
 
 ## Home Assistant 表面
 
-集成向 HA 暴露八个平台、八个服务、两个公开事件和一张内置卡片。服务在域初始化时只注册
+集成向 HA 暴露八个平台、十五个服务、两个公开事件和三张内置卡片。服务在域初始化时只注册
 一次，具体配置项由可选 `entry_id` 和设备所有权确定。带响应的门锁服务声明
-`SupportsResponse.OPTIONAL`。`runtime_options.py` 负责可选的设备上下线通知和 GitHub
+`SupportsResponse.OPTIONAL`；视频诊断与回放服务同样支持可选响应。三张卡片分别用于门锁
+总览、临时密码和录像回放。`runtime_options.py` 负责可选的设备上下线通知和 GitHub
 稳定版本检查，默认均关闭；通知只在已知在线状态发生真实转换时发送，初始化不发送。
 
 Sensor 平台为每台已选且拥有实体平台的设备创建一个 `diagnostic` 类别的枚举实体
@@ -256,6 +284,11 @@ Sensor 平台为每台已选且拥有实体平台的设备创建一个 `diagnost
 
 实体的 `unique_id`、设备关联和服务域均以 `orvibo_smart_control` 为前缀或所有者，不与源
 集成共享身份。用户级 API 见 [服务与事件参考](docs/SERVICES_AND_EVENTS.md)。
+
+普通摄像机与 NVR 先提供 SDK 识别诊断；动态厂商库存、设备 UID 和实际通道匹配成功的
+Meari XTS/p2p=2 设备另建实时与录像回放实体。视频经云授权、P2P/中继、协议子进程与
+FFmpeg 转码后交给 HA Stream，不走 MixPad 控制链路。NVR 1/3 号实时通道已有用户
+播放反馈，硬盘和 SD/TF 查询/回放仍待实机验证；首帧诊断标记不代替这些验证。
 
 ## 失败与一致性边界
 
@@ -280,9 +313,10 @@ Sensor 平台为每台已选且拥有实体平台的设备创建一个 `diagnost
 | 005 | LAN 失败后最多云端重试一次                                  | Accepted | 可预测延迟，避免重复动作循环               |
 | 006 | 状态按字段合并并设置 30 秒优先级保护                        | Accepted | LAN 新鲜状态不被旧云快照立即回滚           |
 | 007 | `52/107/522` 使用云专属策略                                 | Accepted | Wi-Fi 直连和门锁富功能保持可用             |
-| 008 | 未验证设备不获得控制通道                                    | Accepted | 安全优先于推测兼容                         |
+| 008 | 无明确控制证据的档案不获得控制通道；静态支持单独标记        | Accepted | 支持边界与真机验证分开记录                 |
 | 009 | LAN/SSL 请求关联完全隔离                                    | Accepted | 并发和回退不会错误消费另一通道回执         |
 | 010 | 公共服务响应不暴露主机路径或已存密码                        | Accepted | 降低 Recorder、日志和自动化泄露面          |
+| 011 | 原生协议转换按设备身份独立于传输，状态保存协议刻度          | Accepted | 库存、推送与乐观值保持相同单位             |
 
 ## 测试映射
 
@@ -295,10 +329,14 @@ Sensor 平台为每台已选且拥有实体平台的设备创建一个 `diagnost
 | LAN 帧、连接和适配         | `test_lan_packet.py`、`test_lan_gateway_connection.py`、`test_lan_control_adapter.py` |
 | 状态优先级                 | `test_state_store.py`、`test_status_dispatcher.py`                                    |
 | 设备解析与控制语义         | `test_state_parsers.py`、`test_control_router.py`、设备专用测试                       |
+| 原生公式与实体到报文链路   | `test_protocol_profiles.py`、`test_native_profile_integration.py`                     |
 | 门锁、媒体和授权           | `test_lock_manager.py`、`test_lock_media_manager.py`、`test_temp_password_manager.py` |
 | 公共服务安全               | `test_service_handlers.py`、`test_video_archive.py`                                   |
 
 新增跨模块行为时，测试必须覆盖正常路径、超时/异常、回退次数、来源标记和敏感字段边界。
+
+`2.0` 最近一次 Python 3.12 离线验证运行 812 项，810 项通过、2 项因缺少 FFmpeg 跳过。
+该结果不能提升新协议分支的 `hardware_verified` 标记。完整验证记录见协议重构文档。
 
 ## 已知限制
 
@@ -306,5 +344,7 @@ Sensor 平台为每台已选且拥有实体平台的设备创建一个 `diagnost
 - `lan_only` 无法更新或控制门锁、晾衣机等云专属 / Wi-Fi 直连设备。
 - 只有能力表列出的类型获得 LAN 控制；同类型新型号仍需真机验证。
 - 猫眼实时视频使用的私有流协议未实现，camera 展示事件快照。
+- Meari 视频需云授权；只覆盖已实现的 XTS/默认 hostKey 分支，无音频、暂停或倍速。
+- 新增静态调光和 RF 协议尚未完成真机验证；RF 窗帘不报告精确位置或关闭状态。
 - 厂商协议和 API 没有稳定公开规范，固件或服务端变化可能需要重新抓包校准。
 - 状态保护窗口解决短期乱序，不替代设备时钟或分布式一致性协议。
