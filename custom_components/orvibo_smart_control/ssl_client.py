@@ -475,7 +475,7 @@ class SSLClient:
         await self._send_packet(payload, self.session_key)
         return True
 
-    async def send_control_zigbee_dimmable_light_onoff(self, device_id: str, device_uid: str, state: bool, brightness: int = 255):
+    async def send_control_zigbee_dimmable_light_onoff(self, device_id: str, device_uid: str, state: bool, brightness: int = 255, *, value3: int = 0, value4: int = 0):
         """Zigbee调光灯开关控制（on/off 格式，适用于 deviceType=0, subDeviceType=-2）"""
         await self.connect_and_login()
         if not self.session_key or self.session_key == DEFAULT_KEY.encode("utf-8"):
@@ -486,14 +486,14 @@ class SSLClient:
             device_id=device_id,
             device_uid=device_uid,
             state=state,
-            brightness=brightness
+            brightness=brightness, value3=value3, value4=value4
         )
         _LOGGER.debug(f"下发Zigbee调光灯开关 {device_id} state={state} brightness={brightness}")
         await self._send_packet(payload, self.session_key)
         return True
 
-    async def send_control_zigbee_dimmable_light_brightness(self, device_id: str, device_uid: str, brightness_255: int):
-        """Zigbee调光灯亮度控制（set property 格式，适用于 deviceType=0, subDeviceType=-2）"""
+    async def send_control_zigbee_dimmable_light_brightness(self, device_id: str, device_uid: str, brightness_255: int, *, value3: int = 0, value4: int = 0):
+        """Zigbee调光灯亮度控制（move to level 格式，适用于 deviceType=0, subDeviceType=-2）"""
         await self.connect_and_login()
         if not self.session_key or self.session_key == DEFAULT_KEY.encode("utf-8"):
             _LOGGER.debug("会话密钥无效，无法下发")
@@ -502,7 +502,7 @@ class SSLClient:
             username=self.username,
             device_id=device_id,
             device_uid=device_uid,
-            brightness_255=brightness_255
+            brightness_255=brightness_255, value3=value3, value4=value4
         )
         _LOGGER.debug(f"下发Zigbee调光灯亮度 {device_id} brightness={brightness_255}")
         await self._send_packet(payload, self.session_key)
@@ -630,7 +630,16 @@ class SSLClient:
         await self._send_packet(payload, self.session_key)
         return True
 
-    async def send_control_cover(self, device_id: str, device_uid: str, position: int, stop_value2: int = 0):
+    async def send_control_cover(
+        self,
+        device_id: str,
+        device_uid: str,
+        position: int,
+        stop_value2: int = 0,
+        *,
+        order: str | None = None,
+        wire_value1: int | None = None,
+    ):
         await self.connect_and_login()
         if not self.session_key or self.session_key == DEFAULT_KEY.encode("utf-8"):
             _LOGGER.debug("会话密钥无效，无法下发")
@@ -641,6 +650,8 @@ class SSLClient:
             device_uid=device_uid,
             position=position,
             stop_value2=stop_value2,
+            order=order,
+            wire_value1=wire_value1,
         )
         await self._send_packet(payload, self.session_key)
         return True

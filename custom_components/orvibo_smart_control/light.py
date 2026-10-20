@@ -1,16 +1,17 @@
 import logging
 from typing import Optional
 
-from homeassistant.components.light import LightEntity, ColorMode
+from homeassistant.components.light import ColorMode, LightEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER, DEVICE_TYPE_LIGHT, DEVICE_TYPE_CLOTHES_HORSE
+from .const import DEVICE_TYPE_CLOTHES_HORSE, DEVICE_TYPE_LIGHT, DOMAIN, MANUFACTURER
 from .coordinator import OrviboSmartControlCoordinator
-from .device_types import classify_device, DeviceCategory
+from .device_types import DeviceCategory, classify_device
 from .light_values import normalize_brightness
+from .protocol_profiles import light_percent_from_wire, profile_for
 from .selection import selected_device_ids
 
 _LOGGER = logging.getLogger(__name__)
@@ -59,7 +60,6 @@ class OrviboLight(CoordinatorEntity, LightEntity):
         except (TypeError, ValueError):
             device_type_raw = None
             class_id = None
-        
         sub_device_type = device.get("sub_device_type")
         status = device.get("status", {})
         _LOGGER.info(f"灯光设备初始化: name={self._attr_name}, device_type_raw={device_type_raw} (type={type(device_type_raw)}), class_id={class_id} (type={type(class_id)}), sub_device_type={sub_device_type}, status={status}, device={device}")
@@ -69,6 +69,8 @@ class OrviboLight(CoordinatorEntity, LightEntity):
             if "value2" in status:
                 device_type_raw = 0
                 _LOGGER.info(f"通过 sub_device_type=-2 和 value2 推断 device_type_raw=0")
+
+        self._device_type_raw = device_type_raw
         
         # 优先通过 classify_device 判断（最准确）
         category = classify_device(device)
@@ -148,6 +150,9 @@ class OrviboLight(CoordinatorEntity, LightEntity):
     def brightness(self) -> Optional[int]:
         state = self.coordinator.get_device_state(self._device_id)
         if state and state.get("state", False):
+            if profile_for(self._device).dimmer_scale is not None:
+                native_percent = light_percent_from_wire(state.get("brightness"), self._device)
+                return round(native_percent * 255 / 100) if native_percent is not None else None
             brightness = normalize_brightness(
                 state.get("brightness"), 100 if self._brightness_is_percent else 255
             )
@@ -201,6 +206,9 @@ class OrviboLight(CoordinatorEntity, LightEntity):
         current_state = state.get("state", False) if state else False
 
         brightness = kwargs.get("brightness")
+        if brightness is not None and int(brightness) <= 0:
+            await self.coordinator.async_turn_off(self._device_id)
+            return
         # HA 2024+ 优先传 color_temp_kelvin（开尔文），旧版本传 color_temp（mireds）
         color_temp_mired = kwargs.get("color_temp")
         color_temp_kelvin = kwargs.get("color_temp_kelvin")

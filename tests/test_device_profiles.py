@@ -49,6 +49,24 @@ class DeviceProfileTests(unittest.TestCase):
         self.assertFalse(profile.hardware_verified)
         self.assertTrue(profile.registration_only)
 
+    def test_static_profiles_do_not_inherit_category_hardware_verification(self) -> None:
+        for device in (
+            {"device_type_raw": 116},
+            {"deviceType": "116"},
+            {"device_type_raw": 0, "model": "VirtualModelidForMixpadD"},
+            {"device_type_raw": 34, "is_rf_curtain": True},
+            {"device_type_raw": 35, "is_rf_curtain": True},
+        ):
+            with self.subTest(device=device):
+                profile = self.module.get_device_profile(device)
+                self.assertFalse(profile.hardware_verified)
+                self.assertFalse(profile.registration_only)
+
+        unknown = self.module.get_device_profile({
+            "device_type_raw": 999999, "is_rf_curtain": True,
+        })
+        self.assertTrue(unknown.registration_only)
+
     def test_tubular_motor_is_hardware_verified(self) -> None:
         profile = self.module.get_device_profile({"device_type_raw": 35})
         self.assertEqual(

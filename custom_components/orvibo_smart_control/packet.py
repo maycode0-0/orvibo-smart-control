@@ -264,7 +264,7 @@ class HomemateJsonData:
         return payload
 
     @classmethod
-    def ssl_control_zigbee_dimmable_light_onoff(cls, username: str, device_id: str, device_uid: str, state: bool, brightness: int = 255):
+    def ssl_control_zigbee_dimmable_light_onoff(cls, username: str, device_id: str, device_uid: str, state: bool, brightness: int = 255, *, value3: int = 0, value4: int = 0):
         """Zigbee调光灯开关控制（on/off 格式，适用于 deviceType=0, subDeviceType=-2）"""
         serial = generate_serial()
         uniSerial = generate_serial(use_time=True)
@@ -277,8 +277,8 @@ class HomemateJsonData:
             "order": "on" if state else "off",
             "value1": 0 if state else 1,
             "value2": bri,
-            "value3": 0,
-            "value4": 0,
+            "value3": value3,
+            "value4": value4,
             "delayTime": 0,
             "qualityOfService": 1,
             "defaultResponse": 1,
@@ -294,7 +294,7 @@ class HomemateJsonData:
         return payload
 
     @classmethod
-    def ssl_control_zigbee_dimmable_light_brightness(cls, username: str, device_id: str, device_uid: str, brightness_255: int):
+    def ssl_control_zigbee_dimmable_light_brightness(cls, username: str, device_id: str, device_uid: str, brightness_255: int, *, value3: int = 0, value4: int = 0):
         """Zigbee调光灯亮度控制（move to level 格式，适用于 deviceType=0, subDeviceType=-2）"""
         serial = generate_serial()
         uniSerial = generate_serial(use_time=True)
@@ -307,8 +307,8 @@ class HomemateJsonData:
             "order": "move to level",
             "value1": 0,
             "value2": bri,
-            "value3": 0,
-            "value4": 0,
+            "value3": value3,
+            "value4": value4,
             "delayTime": 0,
             "qualityOfService": 1,
             "defaultResponse": 1,
@@ -600,11 +600,23 @@ class HomemateJsonData:
         return payload
 
     @classmethod
-    def ssl_control_cover(cls, username: str, device_id: str, device_uid: str, position: int, stop_value2: int = 0):
-        """控制窗帘（position: 0-100，或使用字符串 'stop' 停止）"""
+    def ssl_control_cover(
+        cls,
+        username: str,
+        device_id: str,
+        device_uid: str,
+        position: int,
+        stop_value2: int = 0,
+        *,
+        order: str | None = None,
+        wire_value1: int | None = None,
+    ):
+        """控制窗帘，保留 APK 的 RF ``rf control`` 分支。"""
         serial = generate_serial()
         uniSerial = generate_serial(use_time=True)
-        if isinstance(position, str) and position == "stop":
+        if order is not None:
+            value1 = int(wire_value1 if wire_value1 is not None else position)
+        elif isinstance(position, str) and position == "stop":
             order = "stop"
             value1 = 0
         else:

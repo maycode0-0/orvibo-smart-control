@@ -34,6 +34,17 @@ class VerifiedDevicePacketTests(unittest.TestCase):
         )
         self.assertEqual((payload["order"], payload["value2"]), ("stop", 255))
 
+    def test_rf_curtain_preserves_native_order_and_code(self) -> None:
+        payload = self.packet.ssl_control_cover(
+            "user",
+            "device",
+            "gateway",
+            100,
+            order="rf control",
+            wire_value1=380000,
+        )
+        self.assertEqual((payload["order"], payload["value1"]), ("rf control", 380000))
+
     def test_dream_curtain_property_packets(self) -> None:
         action = self.packet.ssl_control_dream_curtain_action(
             "user", "device", "gateway", "pause"

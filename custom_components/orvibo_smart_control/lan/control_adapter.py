@@ -157,19 +157,23 @@ class LanControlAdapter:
         device_uid: str,
         state: bool,
         brightness: int = 255,
+        *, value3: int = 0, value4: int = 0,
     ) -> bool:
         return await self._send(
             HomemateJsonData.ssl_control_zigbee_dimmable_light_onoff(
-                self._username, device_id, device_uid, state, brightness
+                self._username, device_id, device_uid, state, brightness,
+                value3=value3, value4=value4,
             )
         )
 
     async def send_control_zigbee_dimmable_light_brightness(
-        self, device_id: str, device_uid: str, brightness_255: int
+        self, device_id: str, device_uid: str, brightness_255: int,
+        *, value3: int = 0, value4: int = 0,
     ) -> bool:
         return await self._send(
             HomemateJsonData.ssl_control_zigbee_dimmable_light_brightness(
-                self._username, device_id, device_uid, brightness_255
+                self._username, device_id, device_uid, brightness_255,
+                value3=value3, value4=value4,
             )
         )
 
@@ -281,6 +285,9 @@ class LanControlAdapter:
         device_uid: str,
         position: int,
         stop_value2: int = 0,
+        *,
+        order: str | None = None,
+        wire_value1: int | None = None,
     ) -> bool:
         return await self._send(
             HomemateJsonData.ssl_control_cover(
@@ -289,6 +296,8 @@ class LanControlAdapter:
                 device_uid,
                 position,
                 stop_value2,
+                order=order,
+                wire_value1=wire_value1,
             )
         )
 

@@ -68,7 +68,7 @@ class DeviceCapability:
 
 # LAN 可直接控制的设备类型（gateway 转发；源自 lan profiles 的非只读类型）
 _LAN_CONTROLLABLE_TYPES = frozenset(
-    {0, 1, 34, 35, 36, 38, 81, 102, 501, 502, 503, 516}
+    {0, 1, 34, 35, 36, 38, 81, 102, 116, 501, 502, 503, 516}
 )
 
 # 类型级只读标记：仅保留云端实现未映射为分类的 WiFi 门锁（107）。

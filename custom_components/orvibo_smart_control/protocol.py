@@ -59,6 +59,8 @@ class OrviboDevice:
     gateway_id: str = ""
     class_name: str = ""
     device_flag: int | None = None
+    is_rf_curtain: bool = False
+    combined_code: int | None = None
     endpoint: int = 0
     properties: Mapping[str, Any] = field(default_factory=dict)
     camera_type: int | None = None  # CameraInfo.type，与 Device.deviceType 不同
@@ -182,6 +184,17 @@ def _parse_online(value: Any) -> bool | None:
         if normalized in {"0", "false", "offline", "disconnected"}:
             return False
     return None
+
+
+def _parse_bool(value: Any) -> bool:
+    """Normalize optional APK flags without treating arbitrary text as true."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value == 1
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return False
 
 
 def _parse_room(
@@ -467,6 +480,8 @@ def parse_readtable_devices(
             gateway_id=_first_text(item, ("gatewayId", "gatewayID")),
             class_name=_first_text(item, ("className",)),
             device_flag=_safe_int(item.get("deviceFlag")),
+            is_rf_curtain=_parse_bool(item.get("isRFCurtain", item.get("is_rf_curtain"))),
+            combined_code=_safe_int(item.get("combinedCode", item.get("combineCode"))),
             endpoint=_safe_int(item.get("endpoint")) or 0,
             properties=properties,
             room_id=room_id,
@@ -603,6 +618,8 @@ def extract_devices(payloads: Any) -> tuple[OrviboDevice, ...]:
                 gateway_id=_first_text(value, ("gatewayId", "gatewayID")),
                 class_name=_first_text(value, ("className",)),
                 device_flag=_safe_int(value.get("deviceFlag")),
+                is_rf_curtain=_parse_bool(value.get("isRFCurtain", value.get("is_rf_curtain"))),
+                combined_code=_safe_int(value.get("combinedCode", value.get("combineCode"))),
                 endpoint=_safe_int(value.get("endpoint")) or 0,
                 properties=(
                     dict(value.get("properties", {}))
@@ -640,6 +657,8 @@ def extract_devices(payloads: Any) -> tuple[OrviboDevice, ...]:
                     gateway_id=candidate.gateway_id or previous.gateway_id,
                     class_name=candidate.class_name or previous.class_name,
                     device_flag=candidate.device_flag if candidate.device_flag is not None else previous.device_flag,
+                    is_rf_curtain=candidate.is_rf_curtain or previous.is_rf_curtain,
+                    combined_code=candidate.combined_code if candidate.combined_code is not None else previous.combined_code,
                     endpoint=candidate.endpoint or previous.endpoint,
                     properties=candidate.properties or previous.properties,
                 )
@@ -696,6 +715,8 @@ def device_to_dict(device: OrviboDevice) -> dict[str, Any]:
         "endpoint": device.endpoint,
         "class_name": device.class_name,
         "device_flag": device.device_flag,
+        "is_rf_curtain": device.is_rf_curtain,
+        "combined_code": device.combined_code,
         "status": copy.deepcopy(dict(device.status)),
         "value1": device.value1,
         "value2": device.value2,
@@ -717,7 +738,7 @@ def _infer_ha_device_type(device: OrviboDevice) -> str:
         46: "sensor", 52: "clothes_horse",
         25: "sensor", 26: "sensor", 27: "sensor", 56: "sensor",
         54: "sensor", 501: "light", 502: "light",
-        503: "light", 516: "fan", 522: "sensor",
+        503: "light", 516: "fan", 522: "sensor", 116: "light",
         506: "cover",
         22: "sensor", 23: "sensor",
         81: "climate",

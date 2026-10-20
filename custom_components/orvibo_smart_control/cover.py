@@ -1,16 +1,21 @@
 import logging
 from typing import Optional
 
-from homeassistant.components.cover import CoverEntity, CoverDeviceClass, CoverEntityFeature
+from homeassistant.components.cover import (
+    CoverDeviceClass,
+    CoverEntity,
+    CoverEntityFeature,
+)
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN, MANUFACTURER, DEVICE_TYPE_COVER, DEVICE_TYPE_CLOTHES_HORSE
+from .const import DEVICE_TYPE_CLOTHES_HORSE, DEVICE_TYPE_COVER, DOMAIN, MANUFACTURER
 from .coordinator import OrviboSmartControlCoordinator
-from .selection import selected_device_ids
 from .device_types import DeviceCategory, classify_device
+from .protocol_profiles import is_rf_curtain
+from .selection import selected_device_ids
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -52,6 +57,9 @@ class OrviboCover(CoordinatorEntity, CoverEntity):
         self._attr_unique_id = f"orvibo_smart_control_cover_{self._device_id}"
         self._attr_name = device.get("device_name", self._device_id)
         self._category = classify_device(device)
+        self._is_rf_curtain = is_rf_curtain(device)
+        if self._is_rf_curtain:
+            self._attr_supported_features &= ~CoverEntityFeature.SET_POSITION
         if self._category == DeviceCategory.DREAM_CURTAIN:
             self._attr_supported_features = self._attr_supported_features | CoverEntityFeature.SET_TILT_POSITION
         # 判断是否是卷帘（type=35），使用 SHUTTER 图标
@@ -63,14 +71,16 @@ class OrviboCover(CoordinatorEntity, CoverEntity):
             self._attr_device_class = CoverDeviceClass.CURTAIN
 
     @property
-    def current_cover_position(self) -> int:
+    def current_cover_position(self) -> Optional[int]:
+        if self._is_rf_curtain:
+            return None
         state = self.coordinator.get_device_state(self._device_id)
         return state.get("position", 0) if state else 0
 
     @property
-    def is_closed(self) -> bool:
+    def is_closed(self) -> Optional[bool]:
         position = self.current_cover_position
-        return position == 0
+        return None if position is None else position == 0
 
     @property
     def available(self) -> bool:
@@ -88,13 +98,17 @@ class OrviboCover(CoordinatorEntity, CoverEntity):
         }
 
     async def async_open_cover(self, **kwargs) -> None:
-        if self._category == DeviceCategory.DREAM_CURTAIN:
+        if self._is_rf_curtain:
+            await self.coordinator.async_turn_on(self._device_id)
+        elif self._category == DeviceCategory.DREAM_CURTAIN:
             await self.coordinator.async_dream_curtain_action(self._device_id, "open")
         else:
             await self.coordinator.async_set_cover_position(self._device_id, 100)
 
     async def async_close_cover(self, **kwargs) -> None:
-        if self._category == DeviceCategory.DREAM_CURTAIN:
+        if self._is_rf_curtain:
+            await self.coordinator.async_turn_off(self._device_id)
+        elif self._category == DeviceCategory.DREAM_CURTAIN:
             await self.coordinator.async_dream_curtain_action(self._device_id, "close")
         else:
             await self.coordinator.async_set_cover_position(self._device_id, 0)

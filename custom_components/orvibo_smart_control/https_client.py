@@ -613,6 +613,8 @@ class HttpsClient:
             return DEVICE_TYPE_LIGHT if sub_device_type in (426, 429) else None
         if device_type_raw == 502:
             return DEVICE_TYPE_LIGHT if sub_device_type == 431 else None
+        if device_type_raw == 116:
+            return DEVICE_TYPE_LIGHT
         if device_type_raw == 503:
             return DEVICE_TYPE_LIGHT if sub_device_type in (436, 461) else None
         if device_type_raw == 522:

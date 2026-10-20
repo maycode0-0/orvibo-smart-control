@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Mapping, MutableMapping, Optional
+from collections.abc import Callable, Mapping, MutableMapping
+from typing import Any, Optional
 
+from .capabilities import ControlChannel, TransportMode, capability_for
 from .control_router import (
     ControlRoute,
     brightness_route,
     color_temp_route,
     power_route,
 )
-from .capabilities import ControlChannel, TransportMode, capability_for
 from .device_types import DeviceCategory, classify_device, get_device_profile
+from .protocol_profiles import curtain_command, is_rf_curtain
 from .state_store import StateSource, StateStore
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -211,6 +212,7 @@ class ControlExecutor:
             self._get_state(device_id) or {},
             brightness=brightness,
             color_temp=color_temp,
+            device=device,
         )
         result, scope = await self._execute_route(
             device_id, device.get("uid", ""), route
@@ -223,6 +225,7 @@ class ControlExecutor:
                     optimistic["brightness"] = brightness
                 if color_temp is not None:
                     optimistic["color_temp"] = color_temp
+                optimistic.update(route.optimistic)
                 self.apply_optimistic(device_id, optimistic)
             self._on_updated()
         return result
@@ -235,6 +238,7 @@ class ControlExecutor:
             classify_device(device),
             False,
             self._get_state(device_id) or {},
+            device=device,
         )
         result, scope = await self._execute_route(
             device_id, device.get("uid", ""), route
@@ -253,6 +257,13 @@ class ControlExecutor:
         if client is None:
             return False
         category = classify_device(device)
+        if is_rf_curtain(device) and category in (
+            DeviceCategory.ZIGBEE_CURTAIN,
+            DeviceCategory.ZIGBEE_ROLLING_SHUTTER,
+            DeviceCategory.LEGACY_CURTAIN,
+        ):
+            _LOGGER.warning("RF 窗帘只支持开关与停止，不接受精确位置: %s", device_id)
+            return False
         if category == DeviceCategory.DREAM_CURTAIN:
             current = self.states.get(device_id, {})
             if current.get("angle") != 90:
@@ -337,6 +348,20 @@ class ControlExecutor:
             )
             return result
         stop_value2 = 255 if category == DeviceCategory.ZIGBEE_ROLLING_SHUTTER else 0
+        if is_rf_curtain(device):
+            command = curtain_command("stop", device)
+            result, _scope = await self._invoke_with_fallback(
+                device_id,
+                client,
+                scope,
+                "send_control_cover",
+                device_id,
+                device.get("uid", ""),
+                0,
+                order=command.order,
+                wire_value1=command.value1,
+            )
+            return result
         result, _scope = await self._invoke_with_fallback(
             device_id,
             client,
@@ -418,6 +443,8 @@ class ControlExecutor:
         return result
 
     async def set_brightness(self, device_id: str, brightness: int) -> bool:
+        if brightness <= 0:
+            return await self.turn_off(device_id)
         device = self._controllable_device(device_id, "亮度")
         if device is None:
             return False
@@ -426,6 +453,7 @@ class ControlExecutor:
             brightness,
             self.states.get(device_id, {}),
             device_type_raw=device.get("device_type_raw"),
+            device=device,
         )
         return await self._execute_confirmed_route(device_id, device, route)
 

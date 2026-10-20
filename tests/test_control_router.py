@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
 import sys
 import types
 import unittest
+from pathlib import Path
 
 COMPONENT_PATH = Path(__file__).parents[1] / "custom_components" / "orvibo_smart_control"
 
@@ -132,6 +132,37 @@ class ControlRouterTests(unittest.TestCase):
                     )
                     brightness = route.args[0] if category == self.category.FAST_MOVE_DIM_COLOR_LIGHT else route.kwargs["brightness"]
                     self.assertEqual(brightness, 255)
+
+    def test_rf_curtain_power_uses_native_command_values(self):
+        route = self.router.power_route(
+            self.category.ZIGBEE_CURTAIN,
+            True,
+            {},
+            device={"device_type_raw": 34, "is_rf_curtain": True},
+        )
+        self.assertEqual(route.method, "send_control_cover")
+        self.assertEqual(route.kwargs, {"order": "rf control", "wire_value1": 380000})
+
+    def test_native_type_116_brightness_is_encoded_before_transport(self):
+        route = self.router.brightness_route(
+            self.category.DIMMABLE_LIGHT,
+            128,
+            {},
+            device_type_raw=116,
+            device={"device_type_raw": 116},
+        )
+        self.assertEqual(route.method, "send_control_zigbee_dimmable_light_brightness")
+        self.assertEqual(route.args, (60,))
+
+    def test_native_type_116_power_uses_native_scale(self):
+        route = self.router.power_route(
+            self.category.DIMMABLE_LIGHT,
+            True,
+            {},
+            device={"device_type_raw": 116},
+        )
+        self.assertEqual(route.method, "send_control_zigbee_dimmable_light_onoff")
+        self.assertEqual(route.kwargs, {"brightness": 120})
 
 
 if __name__ == "__main__":

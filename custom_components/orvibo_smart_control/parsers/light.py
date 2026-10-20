@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Mapping
 
 from ..light_values import normalize_brightness
+from ..protocol_profiles import light_wire_brightness, profile_for
 from .base import StatePatch
 
 
@@ -185,6 +186,37 @@ def parse_zigbee_dimmable_light(
         updates["brightness"] = brightness
         if brightness == 0:
             updates["state"] = False
+    return StatePatch(updates)
+
+
+def parse_native_dimmer(
+    current_state: Mapping[str, Any],
+    raw_status: Mapping[str, Any],
+    device: Mapping[str, Any],
+) -> StatePatch:
+    """Keep native value2 units, including property-only cloud/push updates."""
+    power_status = dict(raw_status)
+    power_status["properties"] = raw_status.get("properties") or {}
+    if normalize_brightness(raw_status.get("value1")) is None:
+        # Native status -1 means this field was not reported.
+        power_status.pop("value1", None)
+    updates = dict(parse_light(current_state, power_status).values)
+    for field in ("value3", "value4"):
+        value = raw_status.get(field)
+        try:
+            if not isinstance(value, bool) and value is not None and int(value) >= 0:
+                updates[f"raw_{field}"] = int(value)
+        except (TypeError, ValueError, OverflowError):
+            pass
+    maximum = 120 if profile_for(device).dimmer_scale == 120 else 255
+    brightness = normalize_brightness(raw_status.get("value2"), maximum)
+    if brightness is None:
+        props = raw_status.get("properties") or {}
+        percent = normalize_brightness(_property_brightness(props), 100)
+        if percent is not None:
+            brightness = light_wire_brightness(percent, device)
+    if brightness is not None:
+        updates["brightness"] = brightness
     return StatePatch(updates)
 
 

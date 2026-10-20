@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import importlib
-from pathlib import Path
 import sys
 import types
 import unittest
+from pathlib import Path
 
 COMPONENT_PATH = Path(__file__).parents[1] / "custom_components" / "orvibo_smart_control"
 
@@ -233,6 +233,12 @@ class StateParserTests(unittest.TestCase):
 
         self.assertEqual(on.values, {"state": True, "brightness": 255})
         self.assertFalse(off.values["state"])
+
+    def test_native_type_116_dimmer_keeps_zero_to_120_wire_level(self) -> None:
+        patch = self.light.parse_zigbee_dimmable_light(
+            {}, {"value1": 0, "value2": 60}
+        )
+        self.assertEqual(patch.values, {"state": True, "brightness": 60})
 
     def test_curtain_preserves_state_at_partial_position(self) -> None:
         patch = self.cover.parse_curtain(

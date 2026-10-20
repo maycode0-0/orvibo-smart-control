@@ -8,8 +8,9 @@ from typing import Any, Callable, MutableMapping, Optional
 
 from .device_types import DeviceCategory, classify_device
 from .parsers import get_state_parser
+from .parsers.light import parse_native_dimmer
+from .protocol_profiles import profile_for
 from .state_store import StateSource, StateStore
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -175,6 +176,8 @@ class StatusUpdateDispatcher:
             self._on_motion(candidate, raw_status, device_id)
         elif device_type == 56 or category == DeviceCategory.EMERGENCY_BUTTON:
             self._on_emergency(candidate, raw_status, device_id)
+        elif device is not None and profile_for(device).dimmer_scale is not None:
+            parse_native_dimmer(candidate, raw_status, device).apply_to(candidate)
         else:
             parser_category = self._parser_category(device_type, sub_type, category)
             if parser_category is None:
@@ -225,6 +228,8 @@ class StatusUpdateDispatcher:
                 else DeviceCategory.DIM_COLOR_LIGHT
             )
         if device_type == 0 and sub_type == -2:
+            return DeviceCategory.ZIGBEE_DIMMABLE_LIGHT
+        if device_type == 116:
             return DeviceCategory.ZIGBEE_DIMMABLE_LIGHT
         if device_type == 300 and sub_type == 491:
             return DeviceCategory.TEMP_HUMIDITY_SENSOR

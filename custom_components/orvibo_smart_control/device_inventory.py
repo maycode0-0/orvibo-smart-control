@@ -6,11 +6,12 @@ import logging
 from typing import Any, Callable, MutableMapping
 
 from .device_types import DeviceCategory, classify_device, is_hidden_category
-from .lock_status import normalize_battery_properties
 from .light_values import normalize_brightness
+from .lock_status import normalize_battery_properties
 from .parsers import get_state_parser
+from .parsers.light import parse_native_dimmer
+from .protocol_profiles import profile_for
 from .state_store import StateSource, StateStore
-
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -231,10 +232,13 @@ class DeviceInventory:
             "value1": device.get("value1"),
             "value2": device.get("value2", device.get("brightness")),
             "value3": device.get("value3", device.get("color_temp")),
+            "value4": device.get("value4"),
         }
         status = device.get("status")
         if isinstance(status, dict):
             raw.update(status)
+        if profile_for(device).dimmer_scale is not None:
+            return dict(parse_native_dimmer(current_state, raw, device).values)
         updates: dict[str, Any] = {}
         # Keep valid legacy levels for property lights that omit brightness.
         maximum = 100 if device.get("device_type_raw") in (502, 503) else 255

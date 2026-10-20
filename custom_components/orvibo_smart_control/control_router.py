@@ -2,11 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Mapping
+from typing import Any
 
 from .device_types import DeviceCategory
 from .light_values import normalize_brightness
+from .protocol_profiles import (
+    curtain_command,
+    dimmer_retained_values,
+    is_rf_curtain,
+    light_wire_from_ha,
+    profile_for,
+)
 
 
 @dataclass(frozen=True)
@@ -27,6 +35,7 @@ def power_route(
     *,
     brightness: int | None = None,
     color_temp: int | None = None,
+    device: Mapping[str, Any] | None = None,
 ) -> ControlRoute:
     """Select the exact existing power-control call for a device category."""
 
@@ -48,6 +57,21 @@ def power_route(
             "send_control_light_colortemp",
             (current_color_temp or 2700,),
             {"brightness": normalize_brightness(current_brightness) or 255},
+        )
+
+    if device is not None and profile_for(device).dimmer_scale is not None:
+        maximum = 120 if profile_for(device).dimmer_scale == 120 else 255
+        current_brightness = (
+            light_wire_from_ha(brightness, device)
+            if is_on and brightness is not None
+            else normalize_brightness(current_state.get("brightness"), maximum)
+        )
+        if current_brightness is None or (is_on and current_brightness == 0):
+            current_brightness = maximum if is_on else 0
+        return ControlRoute(
+            "ssl", "send_control_zigbee_dimmable_light_onoff", (is_on,),
+            {"brightness": current_brightness, **dimmer_retained_values(current_state, device)},
+            {"brightness": current_brightness, "state": is_on},
         )
 
     if category in (DeviceCategory.MONO_LIGHT, DeviceCategory.DIMMABLE_LIGHT):
@@ -119,7 +143,17 @@ def power_route(
     ):
         return ControlRoute("ssl", "send_control_light", (is_on,))
 
-    if category in (DeviceCategory.ZIGBEE_CURTAIN, DeviceCategory.LEGACY_CURTAIN):
+    if category in (
+        DeviceCategory.ZIGBEE_CURTAIN,
+        DeviceCategory.ZIGBEE_ROLLING_SHUTTER,
+        DeviceCategory.LEGACY_CURTAIN,
+    ):
+        if device is not None and is_rf_curtain(device):
+            command = curtain_command("open" if is_on else "close", device)
+            return ControlRoute(
+                "ssl", "send_control_cover", (100 if is_on else 0,),
+                {"order": command.order, "wire_value1": command.value1},
+            )
         return ControlRoute("ssl", "send_control_cover", (100 if is_on else 0,))
 
     if category == DeviceCategory.FAN_COIL_AC:
@@ -158,8 +192,18 @@ def brightness_route(
     current_state: Mapping[str, Any],
     *,
     device_type_raw: Any = None,
+    device: Mapping[str, Any] | None = None,
 ) -> ControlRoute:
     """Select a brightness transport and its optimistic normalized state."""
+
+    if device is not None and profile_for(device).dimmer_scale is not None:
+        # Native dimmer state uses wire levels across pushes, snapshots and fallback.
+        value = light_wire_from_ha(brightness, device)
+        return ControlRoute(
+            "ssl", "send_control_zigbee_dimmable_light_brightness", (value,),
+            dimmer_retained_values(current_state, device),
+            optimistic={"brightness": value, "state": True},
+        )
 
     if category == DeviceCategory.DIMMABLE_LIGHT:
         value = round(brightness)

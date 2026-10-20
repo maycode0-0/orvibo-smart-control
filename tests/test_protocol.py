@@ -273,6 +273,19 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(d["device_type_raw"], 1)
         self.assertEqual(d["room_name"], "Living Room")
 
+    def test_device_to_dict_preserves_native_control_identity(self) -> None:
+        [device] = protocol.parse_readtable_devices({
+            "data": {"device": [{
+                "deviceId": "rf-curtain",
+                "deviceType": 34,
+                "isRFCurtain": "1",
+                "combinedCode": "7",
+            }]}
+        })
+        value = protocol.device_to_dict(device)
+        self.assertTrue(value["is_rf_curtain"])
+        self.assertEqual(value["combined_code"], 7)
+
     def test_parse_readtable_rooms_extracts_room_mapping(self) -> None:
         rooms = protocol.parse_readtable_rooms(
             {

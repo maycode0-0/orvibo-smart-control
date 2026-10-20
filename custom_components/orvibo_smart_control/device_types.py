@@ -11,6 +11,7 @@ from enum import Enum
 from typing import Any, Dict, Optional, Tuple
 
 from .known_device_models import identify_known_device
+from .protocol_profiles import VIRTUAL_MIXPAD_DIMMER_MODEL, profile_for
 
 
 class DeviceCategory(Enum):
@@ -40,7 +41,7 @@ class DeviceCategory(Enum):
     GAS_SENSOR = "gas_sensor"                          # deviceTypeId=25，可燃气体探测器
     SMART_REMOTE = "smart_remote"                      # deviceTypeId=150
     MIXPAD_4WAY_BASE = "mixpad_4way_base"              # deviceTypeId=511
-    DIMMABLE_LIGHT = "dimmable_light"                  # deviceTypeId=502，可调光灯（仅亮度，无色温）
+    DIMMABLE_LIGHT = "dimmable_light"                  # deviceTypeId=502/116，可调光灯（仅亮度，无色温）
     ZIGBEE_DIMMABLE_LIGHT = "zigbee_dimmable_light"    # deviceTypeId=0, subDeviceType=-2，0-10v调光灯
     CCT_LIGHT = "cct_light"                            # statusType=503 subDeviceType=461，0-10v色温灯
     TEMP_HUMIDITY_SENSOR = "temp_humidity_sensor"      # deviceTypeId=300 subType=491，温湿度传感器
@@ -231,7 +232,7 @@ _CATEGORY_INFO: Dict[DeviceCategory, CategoryInfo] = {
     DeviceCategory.DIMMABLE_LIGHT: CategoryInfo(
         category=DeviceCategory.DIMMABLE_LIGHT,
         label="可调光灯",
-        description="deviceTypeId=502, subType=431，可调亮度，无色温",
+        description="deviceTypeId=502 subType=431，或 deviceTypeId=116；可调亮度，无色温；116 使用 0..120 原生刻度",
         capabilities=("onoff", "brightness"),
     ),
     DeviceCategory.ZIGBEE_DIMMABLE_LIGHT: CategoryInfo(
@@ -334,6 +335,7 @@ _DEVICE_TYPE_MAP: Dict[int, DeviceCategory] = {
     150: DeviceCategory.SMART_REMOTE,
     511: DeviceCategory.MIXPAD_4WAY_BASE,
     502: DeviceCategory.DIMMABLE_LIGHT,
+    116: DeviceCategory.DIMMABLE_LIGHT,
     46: DeviceCategory.DOOR_WINDOW_SENSOR,
     516: DeviceCategory.VENTILATION_SYSTEM,
     22: DeviceCategory.TEMP_HUMIDITY_SENSOR,
@@ -434,15 +436,26 @@ def get_device_profile(device: Dict[str, Any]) -> DeviceProfile:
         )
     else:
         info = get_category_info(category)
-    hardware_verified = category in HARDWARE_VERIFIED_CATEGORIES
+    protocol = profile_for(device)
+    static_control_supported = (
+        protocol.device_type == 116
+        or (
+            protocol.dimmer_scale is not None
+            and device.get("model") == VIRTUAL_MIXPAD_DIMMER_MODEL
+        )
+        or (protocol.device_type in (34, 35) and protocol.rf_curtain)
+    )
+    hardware_verified = (
+        category in HARDWARE_VERIFIED_CATEGORIES and not static_control_supported
+    )
     return DeviceProfile(
         category=category,
         info=info,
         hardware_verified=hardware_verified,
-        # A catalogue/category match is identification evidence, not control
-        # evidence.  Only hardware-verified profiles may leave registration-only.
+        # Explicit static protocol evidence may enable a bounded implementation
+        # without claiming that its hardware/firmware has been verified.
         registration_only=(
-            not hardware_verified
+            not (hardware_verified or static_control_supported)
             or category == DeviceCategory.LIGHT_VIRTUAL_GROUP
         ),
     )
