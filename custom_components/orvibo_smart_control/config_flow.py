@@ -12,6 +12,7 @@ from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .capabilities import TransportMode
+from .camera_metadata import CAMERA_CATEGORIES, camera_stream_supported
 from .cloud import CHINA_CLOUD, CloudEndpoint, cloud_for_region
 from .const import (
     CONF_AVAILABILITY_NOTIFICATIONS,
@@ -137,13 +138,17 @@ def _device_label(device_id: str, name: str, room: str) -> str:
 
 
 def _device_option_label(device: dict) -> str:
-    """Add catalogue identity without implying unsupported control capability."""
+    """Describe implemented features separately from device control support."""
     label = _device_label(
         str(device["device_id"]),
         str(device.get("device_name") or ""),
         str(device.get("room_name") or ""),
     )
     profile = get_device_profile(device)
+    if profile.category in CAMERA_CATEGORIES:
+        if camera_stream_supported(device):
+            return f"{label}（支持实时视频）"
+        return f"{label}（已识别：{profile.info.label}，仅支持状态信息，视频暂未支持）"
     if profile.category == DeviceCategory.OTHER or (
         profile.registration_only
         and profile.category != DeviceCategory.UNKNOWN

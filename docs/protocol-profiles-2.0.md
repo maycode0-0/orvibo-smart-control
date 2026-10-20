@@ -62,11 +62,12 @@ model 和类型信息。元数据用于选取具体协议，不能仅凭设备�
 
 运行命令：`python -m unittest discover -s tests`（Python 3.12，依赖见 CI workflow）。
 
-本次本地验证：共运行 812 项测试，810 项通过，结果 `OK (skipped=2)`；
+`2.0.0b0` 协议重构时的本地验证：共运行 812 项测试，810 项通过，结果 `OK (skipped=2)`；
 2 项视频测试因缺少 FFmpeg 跳过。184 个 Python 文件通过 AST 语法检查，
 `git diff --check` 通过；新增协议模块和新增测试通过 Ruff 检查。
 全库 Ruff 仍有既有问题，本次没有进行无关的全库格式化。
 
-本次以 `2.0` 为基础，发布版本为 `2.0.0b0`，上一版本基线为 `0.2.6b17`。
-[发布说明](releases/2.0.0b0.md) 与 [CHANGELOG](../CHANGELOG.md) 记录本次变化，
+当前以 `2.0` 为基础，发布版本为 `2.0.0b1`，协议重构基线为 `0.2.6b17`。
+`b1` 修复摄像机/NVR 支持显示，未修改本页协议；全量测试运行 816 项，814 项通过、2 项因缺少 FFmpeg 跳过。
+[发布说明](releases/2.0.0b1.md) 与 [CHANGELOG](../CHANGELOG.md) 记录当前变化，
 [迁移指南](MIGRATION.md) 说明升级与回退，[文档索引](README.md) 汇总其他协议资料。

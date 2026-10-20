@@ -25,7 +25,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .camera_metadata import camera_sdk_hint
+from .camera_metadata import camera_stream_supported
 from .meari_live import LiveCameraBootstrap, LiveCameraDescription
 from .meari_stream import MeariVideoBridge, _finish_uninterrupted
 from .meari_hdd import DATA_KEY, async_query_hdd, validate_request
@@ -58,7 +58,7 @@ async def async_setup_entry(
             entities.append(OrviboLockSnapshotCamera(coordinator, device))
     video_devices = {
         device_id: device for device_id, device in coordinator.devices.items()
-        if device_id in selected_ids and camera_sdk_hint(device) == "meari"
+        if device_id in selected_ids and camera_stream_supported(device)
     }
     if video_devices:
         bootstrap = LiveCameraBootstrap(coordinator, async_get_clientsession(hass))

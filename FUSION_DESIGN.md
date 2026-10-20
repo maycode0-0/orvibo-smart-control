@@ -2,7 +2,7 @@
 
 本文描述 `orvibo-smart-control` 当前已经实现的结构、数据流和架构决策。行为以`custom_components/orvibo_smart_control/` 中的代码和自动化测试为准。
 
-本文覆盖 `2.0` 分支的协议重构，发布版本为 `2.0.0b0`，上一版本基线为 `0.2.6b17`。
+本文覆盖 `2.0` 分支的协议重构，当前发布版本为 `2.0.0b1`，协议重构基线为 `0.2.6b17`。
 原生转换的公式与静态证据见 [2.0 协议重构](docs/protocol-profiles-2.0.md)。
 
 ## 系统边界
@@ -144,6 +144,10 @@ normalized identity -> ProtocolProfile -> wire encoding / state decoding
 真机标记不适用于这些新增分支；公开目录命中本身也不授予控制能力。
 
 详细设备清单见 [设备支持矩阵](docs/DEVICE_SUPPORT.md)。
+
+摄像机的视频支持独立于设备控制与硬件验证。`camera_stream_supported` 按已实现的
+Meari 路由判定，供摄像头实体注册、能力平台表、设备选择页和 `stream_supported` 诊断共用；
+不探测连接成功，也不增加 LAN/SSL 控制通道或提升 `hardware_verified`。
 
 ## 控制选择
 

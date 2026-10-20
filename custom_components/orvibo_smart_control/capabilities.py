@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, FrozenSet, Optional
 
+from .camera_metadata import camera_stream_supported
 from .device_types import DeviceCategory, get_device_profile
 
 # HA 平台名（与 __init__.PLATFORMS 对齐）
@@ -198,9 +199,13 @@ def capability_for(device: Any) -> DeviceCapability:
     else:
         channels = frozenset({ControlChannel.SSL})
 
+    platforms = _CATEGORY_PLATFORMS.get(category, frozenset())
+    if camera_stream_supported(device):
+        platforms = platforms | {PLATFORM_CAMERA}
+
     return DeviceCapability(
         category=category,
-        platforms=_CATEGORY_PLATFORMS.get(category, frozenset()),
+        platforms=platforms,
         channels=channels,
         status_only=status_only,
         cloud_only=cloud_only,

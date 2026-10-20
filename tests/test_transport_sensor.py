@@ -210,9 +210,12 @@ class TransportSensorTests(unittest.TestCase):
         self.assertFalse(camera.extra_state_attributes["stream_supported"])
         coordinator.devices["camera"] = {**device, "camera_type": 8}
         self.assertEqual(camera.native_value, "meari")
+        self.assertTrue(camera.extra_state_attributes["stream_supported"])
+        self.assertTrue(sdk_entities["nvr"].extra_state_attributes["stream_supported"])
         self.assertEqual(camera.extra_state_attributes["camera_type"], 8)
         coordinator.devices["camera"] = {**device, "camera_type": None}
         self.assertEqual(camera.native_value, "unknown")
+        self.assertFalse(camera.extra_state_attributes["stream_supported"])
         coordinator.devices.pop("camera")
         self.assertFalse(camera.available)
 

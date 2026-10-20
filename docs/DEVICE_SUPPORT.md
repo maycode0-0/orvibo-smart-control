@@ -1,7 +1,7 @@
 # 设备支持矩阵
 
 本文记录 ORVIBO Smart Control `2.0` 分支的设备识别、Home Assistant 平台和传输边界；
-发布版本为 `2.0.0b0`，上一版本基线为 `0.2.6b17`。
+当前发布版本为 `2.0.0b1`，协议重构基线为 `0.2.6b17`。
 “已验证”表示维护者对该类别完成过真机状态与控制检查，不表示同一 `deviceType` 下的
 所有商品型号天然兼容。
 
@@ -155,8 +155,11 @@ Meari XTS/p2p=2 设备另建实时与回放 `camera` 实体。
 `ev_9d0f3dbb5f213df33b5f9acc09d5baf74c11dfc30bb2d40ee7497d17d8e00acc`
 和 `ev_1ae7d7ced477d6d3bbd9ed9db22d48080df5664ecf758855ad741c7eacf73acc`。
 原生应用还有型号优先分支，因此传感器显示的是 SDK 提示，不是全部型号的运行时断言。
-静态 SDK 诊断中的 `hardware_verified`、`stream_supported` 仍为 false，不能代表动态
-播放路径的运行结果。实际播放仅支持厂商库存返回 `iotType=3`、`p2p=2`，默认 hostKey
+`stream_supported` 表示集成已实现的视频路由：NVR `162` 及摄像机 `14` 的附表类型 `8–10`
+为 true，选择页显示“支持实时视频”，能力表包含 `camera`；其他 SDK 为 false，显示
+“仅支持状态信息，视频暂未支持”。此字段不代表连接成功或真机验证，`hardware_verified`
+保持 false，摄像机也不因此获得 LAN/SSL 控制通道。
+实际播放仅支持厂商库存返回 `iotType=3`、`p2p=2`，默认 hostKey
 鉴权的 IPC（devTypeID=2）或 NVR（devTypeID=11），并精确匹配设备 UID 与实际通道。
 
 | 功能 | 当前实现与证据 |

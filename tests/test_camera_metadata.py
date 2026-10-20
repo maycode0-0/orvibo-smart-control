@@ -123,7 +123,7 @@ class CameraInventoryTests(unittest.TestCase):
             "device": {"camera-device": {**row, "delFlag": 1}},
         }), [])
 
-    def test_cameras_are_visible_but_never_controllable_or_stream_capable(self):
+    def test_cameras_are_visible_but_never_have_device_control_channels(self):
         for device_type in (14, 162):
             device = {"device_id": "camera", "device_type_raw": device_type}
             with self.subTest(device_type=device_type):
@@ -133,7 +133,8 @@ class CameraInventoryTests(unittest.TestCase):
                 self.assertFalse(profile.hardware_verified)
                 self.assertEqual(profile.info.capabilities, ())
                 cap = capabilities.capability_for(device)
-                self.assertEqual(cap.platforms, frozenset({"sensor"}))
+                expected_platforms = {"sensor", "camera"} if device_type == 162 else {"sensor"}
+                self.assertEqual(cap.platforms, frozenset(expected_platforms))
                 self.assertEqual(cap.channels, frozenset())
                 self.assertFalse(cap.controllable)
                 self.assertTrue(cap.status_only)
@@ -179,6 +180,24 @@ class CameraInventoryTests(unittest.TestCase):
 
 
 class CameraSdkHintTests(unittest.TestCase):
+    def test_stream_support_matches_implemented_camera_platform_route(self):
+        examples = (
+            ({"device_type_raw": 162}, True),
+            *(({"device_type_raw": 14, "camera_type": value}, True) for value in (8, 9, 10)),
+            *(({"device_type_raw": 14, "camera_type": value}, False)
+              for value in (None, -1, 0, 1, 2, 3, 7, 11, 99, True, "8")),
+        )
+        for device, supported in examples:
+            with self.subTest(device=device):
+                device = {**device, "online": False}
+                self.assertEqual(metadata.camera_stream_supported(device), supported)
+                self.assertEqual(metadata.camera_diagnostics(device)["stream_supported"], supported)
+                self.assertEqual("camera" in capabilities.capability_for(device).platforms, supported)
+                self.assertFalse(metadata.camera_diagnostics(device)["hardware_verified"])
+                self.assertFalse(capabilities.capability_for(device).controllable)
+        for device in (None, 162, {}, {"device_type_raw": 999999, "camera_type": 8}):
+            self.assertFalse(metadata.camera_stream_supported(device))
+
     def test_type_based_routes_cover_all_observed_values(self):
         for types_, expected in ((range(3, 8), "danale"), (range(8, 11), "meari"),
                                  ((-1, 1, 2), "ezviz")):
@@ -204,7 +223,7 @@ class CameraSdkHintTests(unittest.TestCase):
                   "tokenSecret": "secret", "password": "secret", "ext_addr": "private-did"}
         self.assertEqual(metadata.camera_diagnostics(device), {
             "camera_type": 8, "camera_sdk_hint": "meari",
-            "sdk_hint_source": "camera_info_type", "stream_supported": False,
+            "sdk_hint_source": "camera_info_type", "stream_supported": True,
             "hardware_verified": False,
         })
         self.assertEqual(metadata.camera_diagnostics({"device_type_raw": 14})["sdk_hint_source"], "unknown")

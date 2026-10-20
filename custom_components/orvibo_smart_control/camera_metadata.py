@@ -1,4 +1,4 @@
-"""Static camera SDK hints from HomeMate 5.2.6.307; no network or playback.
+"""Camera SDK identity and implemented video support; no network probes.
 
 CameraInfo.type is separate from Device.deviceType and catalogue productType.
 The native application also has model overrides; these hints do not validate a
@@ -35,6 +35,15 @@ def camera_sdk_hint(device: dict[str, Any]) -> str:
     return "unknown"
 
 
+def camera_stream_supported(device: Any) -> bool:
+    """Match the implemented camera platform route, independent of availability.
+
+    This declares software support, not a successful connection or hardware
+    verification. Other SDKs retain inventory sensors without video entities.
+    """
+    return isinstance(device, dict) and camera_sdk_hint(device) == "meari"
+
+
 def camera_diagnostics(device: dict[str, Any]) -> dict[str, Any]:
     """Return a small public allowlist, without camera credentials or IDs."""
     category = classify_device(device)
@@ -50,6 +59,6 @@ def camera_diagnostics(device: dict[str, Any]) -> dict[str, Any]:
             "device_type" if category == DeviceCategory.CAMERA_NVR
             else "camera_info_type" if camera_type is not None else "unknown"
         ),
-        "stream_supported": False,
+        "stream_supported": camera_stream_supported(device),
         "hardware_verified": False,
     }

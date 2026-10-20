@@ -139,13 +139,6 @@ def _load_config_flow():
                 CLOUD_ONLY=SimpleNamespace(value="cloud_only"),
             ),
         ),
-        f"{package_name}.device_types": _module(
-            f"{package_name}.device_types",
-            DeviceCategory=SimpleNamespace(OTHER="other", UNKNOWN="unknown"),
-            classify_device=lambda device: "other",
-            get_device_profile=lambda device: None,
-            is_hidden_category=lambda category: False,
-        ),
         f"{package_name}.lock_status": _module(
             f"{package_name}.lock_status",
             format_lock_user_names=lambda value: "",
@@ -292,6 +285,45 @@ class TestOptionsReauth(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(label, "入户门锁")
         self.assertNotIn("暂未支持", label)
         get_profile.assert_called_once_with(device)
+
+    def test_meari_camera_options_show_implemented_video_support(self):
+        for metadata in (
+            {"device_type_raw": 162},
+            {"device_type_raw": 14, "camera_type": 8},
+            {"device_type_raw": 14, "camera_type": 9},
+            {"device_type_raw": 14, "camera_type": 10},
+        ):
+            device = {
+                "device_id": "camera-1", "device_name": "摄像机",
+                "room_name": "客厅", "online": False, **metadata,
+            }
+            with self.subTest(metadata=metadata):
+                self.assertEqual(
+                    self.module._device_option_label(device),
+                    "摄像机 [客厅]（支持实时视频）",
+                )
+                self.assertFalse(self.module.get_device_profile(device).hardware_verified)
+
+    def test_other_camera_options_describe_status_and_video_separately(self):
+        for camera_type in (None, 0, 1, 2, 3, 7, 11, 99, True, "8"):
+            device = {
+                "device_id": "camera-1", "device_name": "摄像机",
+                "device_type_raw": 14, "camera_type": camera_type,
+            }
+            with self.subTest(camera_type=camera_type):
+                self.assertEqual(
+                    self.module._device_option_label(device),
+                    "摄像机（已识别：WiFi 摄像机，仅支持状态信息，视频暂未支持）",
+                )
+
+    def test_unknown_options_remain_unsupported(self):
+        self.assertEqual(
+            self.module._device_option_label({
+                "device_id": "unknown-1", "device_name": "未知设备",
+                "device_type_raw": 999999, "camera_type": 8,
+            }),
+            "未知设备（未识别，暂未支持）",
+        )
 
     async def test_device_name_filter_saves_rules_and_preserves_options(self):
         flow, _ = self._flow()

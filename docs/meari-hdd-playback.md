@@ -6,7 +6,7 @@
 
 ## 打开回放
 
-1. 在 HACS 更新到 `v2.0.0b0` 或后续适用版本，重启 Home Assistant，强制刷新浏览器。
+1. 在 HACS 更新到 `v2.0.0b1` 或后续适用版本，重启 Home Assistant，强制刷新浏览器。
 2. 编辑仪表盘 → 添加卡片 → 搜索“欧瑞博录像回放”。也可添加手动卡片：
 
    ```yaml
@@ -40,7 +40,7 @@ grid_options:
 尚未注册。可在“设置 → 仪表盘 → 右上角菜单 → 资源”（需开启高级模式）添加：
 
 ```text
-/orvibo_smart_control/www/orvibo-smart-control-nvr-card.js?v=2.0.0b0
+/orvibo_smart_control/www/orvibo-smart-control-nvr-card.js?v=2.0.0b1
 ```
 
 类型选“JavaScript 模块”，保存后强制刷新。YAML 资源模式则在 `lovelace.resources`
