@@ -383,8 +383,21 @@ class ReleaseWorkflowTests(unittest.TestCase):
         self.assertEqual(result["release"]["target_commitish"], CURRENT_SHA)
         self.assertFalse(result["release"]["prerelease"])
 
+    def test_new_major_versions_publish_normal_latest_release(self):
+        for version in ("2.0.0b0", "2.0.0"):
+            with self.subTest(version=version):
+                result = self.run_workflow("release", version=version)
+                self.assertIsNone(result["error"])
+                self.assertEqual(result["outputs"]["tag"], f"v{version}")
+                self.assertEqual(result["release"]["name"], f"v{version}")
+                self.assertEqual(result["release"]["target_commitish"], CURRENT_SHA)
+                self.assertFalse(result["release"]["draft"])
+                self.assertFalse(result["release"]["prerelease"])
+                self.assertEqual(result["release"]["make_latest"], "true")
+                self.assertEqual(self.methods(result)[-2:], ["uploadReleaseAsset", "updateRelease"])
+
     def test_invalid_manifest_versions_fail_before_writes(self):
-        for version in ("0.02.0", "0.2.00", "0.2", "0.2.0b", "0.2.0b01", "0.2.0rc1", "v0.2.0"):
+        for version in ("0.02.0", "0.2.00", "0.2", "0.2.0b", "0.2.0b01", "0.2.0rc1", "v0.2.0", "02.0.0", "2.00.0", "2.0.00", "2.0", "2.0.0b01"):
             with self.subTest(version=version):
                 result = self.run_workflow(version=version)
                 self.assertIn("Invalid release version", result["error"])

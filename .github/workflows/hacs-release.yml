@@ -73,7 +73,7 @@ jobs:
           script: |
             const fs = require('fs');
             const version = JSON.parse(fs.readFileSync('custom_components/orvibo_smart_control/manifest.json')).version;
-            if (!/^0\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:b(0|[1-9]\d*))?$/.test(version)) {
+            if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:b(0|[1-9]\d*))?$/.test(version)) {
               throw new Error(`Invalid release version: ${version}`);
             }
             // bN identifies diagnostic builds; publish normal releases for HACS updates.
