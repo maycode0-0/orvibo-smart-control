@@ -19,6 +19,7 @@
 - 库存保留 `isRFCurtain`、`combinedCode` 等身份元数据，SSL/LAN 复用相同协议封包。
 - 静态证据支持的新增分支允许有限控制，但 `hardware_verified=false`，不继承同类别其他设备的实机结论。
 - 发布脚本支持新的主版本号，并保留无前导零、三段版本与可选 `bN` 后缀校验；新增 2.0 版本的封包上传后公开发布回归。
+- 分支 CI 与发布流水线统一安装 PyCryptodome、PyAV 和 FFmpeg，修复媒体协议测试因缺少 `Crypto` 而无法运行的问题。
 
 ### Validation
 
