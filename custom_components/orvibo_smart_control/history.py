@@ -2,6 +2,7 @@
 
 目录结构：
   config/media/orvibo_smart_control/<device_id>/<kind>_<时间戳>.(jpg|h264|mp4)
+  config/media/orvibo_smart_control/<device_id>/opening_events.json
 
 HA 媒体浏览器按目录/文件名自然形成时间倒序的历史列表；list_events
 服务动态扫描目录返回结构化记录，供自动化与自定义卡片使用。
@@ -10,6 +11,7 @@ HA 媒体浏览器按目录/文件名自然形成时间倒序的历史列表；l
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import tempfile
@@ -48,6 +50,102 @@ def history_dir(media_root: Path, device_id: str) -> Path:
     d = Path(media_root) / "orvibo_smart_control" / safe
     d.mkdir(parents=True, exist_ok=True)
     return d
+
+
+def _opening_history_path(directory: Path) -> Path:
+    return Path(directory) / "opening_events.json"
+
+
+def _write_opening_records(path: Path, records: list[dict]) -> None:
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, suffix=".part", delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+            json.dump(records, stream, ensure_ascii=False, separators=(",", ":"))
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _read_opening_records(path: Path) -> list[dict]:
+    try:
+        records = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return []
+    if not isinstance(records, list):
+        return []
+    valid = []
+    for item in records:
+        if (not isinstance(item, dict)
+                or not isinstance(item.get("id"), str)
+                or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", item["id"])
+                or type(item.get("time")) is not int or item["time"] < 0):
+            continue
+        direction = item.get("open_direction")
+        record = {
+            "id": item["id"], "time": item["time"],
+            "open_direction": direction if direction in ("inside", "outside") else "unknown",
+        }
+        if direction == "outside":
+            for key in ("unlock_method", "unlock_user_id", "unlock_user_name"):
+                if isinstance(item.get(key), (str, int)):
+                    record[key] = str(item[key])[:64]
+        valid.append(record)
+    valid.sort(key=lambda item: item["time"], reverse=True)
+    return valid
+
+
+def save_opening_event(
+    directory: Path, event: dict, limit: int = 500,
+) -> None:
+    """Atomically save or update one lock opening record by event identity."""
+    opening_id = str(event.get("opening_id") or "")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", opening_id):
+        return
+    try:
+        timestamp = int(event.get("time"))
+    except (TypeError, ValueError, OverflowError):
+        return
+    if timestamp < 0:
+        return
+    direction = event.get("open_direction")
+    if direction not in ("inside", "outside"):
+        direction = "unknown"
+    record = {
+        "id": opening_id,
+        "time": timestamp,
+        "open_direction": direction,
+    }
+    if direction == "outside":
+        for key, source in (
+            ("unlock_method", "unlock_method"),
+            ("unlock_user_id", "opened_by_user_id"),
+        ):
+            value = event.get(source, event.get(key))
+            if value is not None:
+                record[key] = str(value)[:64]
+        name = event.get("opened_by_name") or event.get("unlock_user_name")
+        if name:
+            record["unlock_user_name"] = str(name)[:64]
+
+    path = _opening_history_path(directory)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    records = [item for item in _read_opening_records(path) if item["id"] != opening_id]
+    records.append(record)
+    records.sort(key=lambda item: int(item.get("time", 0)), reverse=True)
+    records = records[:max(1, int(limit))]
+    _write_opening_records(path, records)
+
+
+def list_opening_events(
+    media_root: Path, device_id: str, limit: int = 100,
+) -> list[dict]:
+    """Return recent opening records without exposing their local file path."""
+    path = Path(media_root) / "orvibo_smart_control" / _device_name(device_id) / "opening_events.json"
+    return _read_opening_records(path)[:max(1, int(limit))]
 
 
 def snapshot_path(
@@ -181,7 +279,7 @@ def cleanup(
     """清理历史归档：删除超过 keep_days 天的文件，可选按条数裁剪。
 
     按文件名时间戳判断（<kind>_<ts>.<ext>）；空目录一并删除。
-    返回删除的文件数。
+    返回删除的媒体文件数与开门记录数之和。
     """
     root = Path(media_root) / "orvibo_smart_control"
     if not root.is_dir():
@@ -192,6 +290,27 @@ def cleanup(
     for d in dirs:
         if not d.is_dir():
             continue
+        opening_path = _opening_history_path(d)
+        try:
+            opening_records = json.loads(opening_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            opening_records = None
+        if isinstance(opening_records, list):
+            retained = [
+                item for item in opening_records
+                if isinstance(item, dict)
+                and isinstance(item.get("time"), int)
+                and item["time"] >= cutoff
+            ]
+            retained.sort(key=lambda item: item["time"], reverse=True)
+            if max_entries:
+                retained = retained[:max_entries]
+            if len(retained) != len(opening_records):
+                if retained:
+                    _write_opening_records(opening_path, retained)
+                else:
+                    opening_path.unlink(missing_ok=True)
+                removed += len(opening_records) - len(retained)
         if snapshot_limit is not None:
             removed += trim_snapshots(d, snapshot_limit)
         entries = _entries(d)

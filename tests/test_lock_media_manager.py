@@ -146,6 +146,58 @@ class LockMediaManagerAsyncTests(unittest.IsolatedAsyncioTestCase):
         manager.cos = FakeCos()
         return manager
 
+    async def test_openings_need_no_camera_or_cos_and_reads_wait_for_pending_save(self):
+        with tempfile.TemporaryDirectory() as td:
+            manager = self.manager(td)
+            manager.cos = None
+            event = {'opening_id': 'one', 'time': 100, 'open_direction': 'inside',
+                     'unlock_user_name': '旧用户'}
+            manager.record_opening('lock', event)
+            event['time'] = 200
+            records = await manager.list_openings('lock')
+            self.assertEqual(records, [
+                {'device_id': 'lock', 'id': 'one', 'time': 100, 'open_direction': 'inside'},
+            ])
+            restored = self.manager(td)
+            self.assertEqual(await restored.list_openings('lock'), records)
+
+    async def test_concurrent_openings_are_serialized_and_door_event_is_merged(self):
+        with tempfile.TemporaryDirectory() as td:
+            manager = self.manager(td)
+            for index in range(20):
+                manager.record_opening('lock', {'opening_id': str(index), 'time': index})
+            manager.record_opening('lock', {'opening_id': '19', 'time': 19,
+                                           'open_direction': 'outside', 'opened_by_name': '张三'})
+            records = await manager.list_openings('lock')
+            self.assertEqual(len(records), 20)
+            self.assertEqual(records[0]['unlock_user_name'], '张三')
+            self.assertEqual(await manager.list_openings('other'), [])
+
+    async def test_shutdown_finishes_queued_openings_but_rejects_new_ones(self):
+        with tempfile.TemporaryDirectory() as td:
+            manager = self.manager(td)
+            manager.record_opening('lock', {'opening_id': 'one', 'time': 100})
+            await manager.async_shutdown()
+            manager.record_opening('lock', {'opening_id': 'two', 'time': 200})
+            self.assertEqual([item['id'] for item in await manager.list_openings('lock')], ['one'])
+            self.assertFalse(manager._tasks)
+
+    async def test_manual_cleanup_serializes_with_opening_save_and_only_owned_locks(self):
+        with tempfile.TemporaryDirectory() as td:
+            manager = self.manager(td)
+            manager.devices = {'lock': {'device_type_raw': 522}}
+            for device in ('lock', 'other'):
+                await manager._save_opening(device, {'opening_id': 'old', 'time': 100})
+            lock = manager._snapshot_locks['lock']
+            await lock.acquire()
+            pending = asyncio.create_task(manager.cleanup_history(keep_days=0))
+            await asyncio.sleep(0)
+            self.assertFalse(pending.done())
+            lock.release()
+            self.assertEqual(await pending, 1)
+            self.assertEqual(await manager.list_openings('lock'), [])
+            self.assertEqual(len(await manager.list_openings('other')), 1)
+
     async def test_download_is_immediate_and_retries_use_fresh_signature(self):
         with tempfile.TemporaryDirectory() as td:
             manager = self.manager(td)

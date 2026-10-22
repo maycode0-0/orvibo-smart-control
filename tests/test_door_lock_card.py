@@ -9,6 +9,8 @@ const fs = require('fs'), vm = require('vm'), assert = require('assert/strict');
 global.HTMLElement = class {
   attachShadow() {
     this.shadowRoot = {innerHTML: '', querySelector: () => ({addEventListener(){}}), querySelectorAll: () => []};
+    // Capture tests isolate the independent opening request; opening tests restore it.
+    this._loadOpenings = () => {};
   }
 };
 const definitions = new Map();
@@ -65,6 +67,71 @@ class DoorLockCardTests(unittest.TestCase):
                                 capture_output=True, text=True, encoding='utf-8', timeout=15)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_opening_history_keeps_inside_anonymous_and_escapes_outside_names(self):
+        self._run_script(r'''
+const card=new Card();
+card._openings=[{id:'inside',time:200,open_direction:'inside',unlock_user_name:'旧人员',unlock_method:'password'},
+  {id:'outside',time:100,open_direction:'outside',unlock_user_name:'<张三>',unlock_method:'fingerprint'},
+  {id:'admin',time:50,open_direction:'outside',unlock_user_id:0,unlock_method:'card'}];
+const markup=card._openingsMarkup();
+assert(markup.includes('内开'));
+assert(!markup.includes('旧人员'));assert(!markup.includes('密码'));
+assert(markup.includes('&lt;张三&gt;'));assert(!markup.includes('<张三>'));
+assert(markup.includes('指纹'));assert(markup.includes('外开'));assert(markup.includes('用户0'));
+''')
+
+    def test_openings_load_sort_and_keep_records_when_refresh_fails(self):
+        self._run_script(r'''
+const card=new Card();delete card._loadOpenings;
+card._deviceId='lock';card._entitiesLoaded=true;card._eventsLoaded=true;
+card._historyLimit=2;let mode='ok',requests=[];
+card._hass={states:{},callWS:async request=>{
+  requests.push(request);assert.equal(request.service,'list_openings');
+  if(mode==='error')throw new Error('记录暂不可用');
+  if(mode==='invalid')return {response:{}};
+  return {response:{openings:[{id:'older',time:100,open_direction:'inside'},
+    {id:'newest',time:300,open_direction:'outside'},{id:'middle',time:200,open_direction:'inside'}]}};
+}};
+await card._loadOpenings();
+assert.deepEqual(requests[0].service_data,{device_id:'lock',limit:2});
+assert.deepEqual(card._openings.map(record=>record.id),['newest','middle']);
+assert.equal(card._openingsError,'');
+for(const error of ['error','invalid']){
+  mode=error;await card._loadOpenings(true);
+  assert.equal(card._openings.length,2);assert(card._openingsError);assert(!card._openingsLoading);
+}
+card._config.temp_password_only=true;requests=[];
+await card._loadOpenings(true);assert.equal(requests.length,0);
+card._render();assert(!card.shadowRoot.innerHTML.includes('ov-openings-list'));
+''')
+
+    def test_opening_history_refreshes_on_opening_state_without_a_camera(self):
+        self._run_script(r'''
+const card=new Card();delete card._loadOpenings;
+card._deviceId='lock';card._entitiesLoaded=true;card._eventsLoaded=true;
+card._entities={unlock:'sensor.unlock',door:'binary_sensor.door'};
+let calls=0;
+const callWS=async request=>{assert.equal(request.service,'list_openings');calls++;return {response:{openings:[]}};};
+card._hass={states:{'sensor.unlock':{state:'内开',attributes:{unlock_time:100}}},callWS};
+card._render();await new Promise(resolve=>setImmediate(resolve));
+assert.equal(calls,1);
+card._render();await new Promise(resolve=>setImmediate(resolve));assert.equal(calls,1);
+card.hass={states:{'sensor.unlock':{state:'内开',attributes:{unlock_time:200}}},callWS};
+await new Promise(resolve=>setImmediate(resolve));assert.equal(calls,2);
+''')
+
+    def test_switching_lock_discards_pending_opening_response(self):
+        self._run_script(r'''
+const card=new Card();delete card._loadOpenings;
+card._deviceId='old-lock';card._entitiesLoaded=true;let resolveList;
+card._hass={states:{},callWS:request=>request.service==='list_openings'
+  ? new Promise(resolve=>{resolveList=resolve;}) : Promise.resolve([])};
+const pending=card._loadOpenings();
+card.setConfig({device_id:'new-lock'});
+resolveList({response:{openings:[{id:'old-record',time:100,open_direction:'inside'}]}});
+await pending;assert.deepEqual(card._openings,[]);assert(!card._openingsLoaded);assert(!card._openingsLoading);
+''')
+
     def test_capture_requests_match_home_assistant_media_resolve_schema(self):
         self._run_script(r'''
 const card = new Card();
@@ -110,8 +177,9 @@ card._entities={unlock:'sensor.unlock',lock_state:'sensor.lock',door:'binary_sen
 card._hass={states:{'sensor.unlock':{state:'旧用户外开（指纹）',attributes:{
   open_direction:'inside',unlock_user_name:'旧用户',unlock_method:'fingerprint'}}}};
 const opening=card._openingSummary();
-assert.equal(opening.label,'人员未知');
-assert.equal(opening.direction,'内开');
+assert.equal(opening.label,'内开');
+assert.equal(opening.direction,'');
+assert.equal(opening.icon,'mdi:door-open');
 assert(!opening.detail.includes('指纹'));
 card._hass.states['sensor.lock']={state:'unknown',attributes:{door_open:false,inside_locked:false}};
 assert.equal(card._lockState(),'unknown');

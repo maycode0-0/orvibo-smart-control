@@ -305,6 +305,7 @@ class OrviboSmartControlCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         if data is None:
             return
         if not data.get("historical") and (data.get("kind") == "unlock" or data.get("door_opened")):
+            self.lock_media.record_opening(device_id, data)
             state = self.device_states.get(device_id)
             if state is not None:
                 values = {
@@ -351,6 +352,11 @@ class OrviboSmartControlCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         media_type: str | None = None,
     ) -> list[dict[str, str]]:
         return await self.lock_media.list_events(device_id, limit, media_type)
+
+    async def async_list_openings(
+        self, device_id: str, limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        return await self.lock_media.list_openings(device_id, limit)
 
     def start_history_cleanup(self) -> None:
         self.lock_media.start_cleanup()

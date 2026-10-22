@@ -4,7 +4,7 @@ import unittest
 import importlib
 import sys
 import types
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from test_lock_manager import _load_module
 
@@ -104,12 +104,15 @@ class LockOpeningTests(unittest.TestCase):
         self.assertNotIn('open_direction', event)
 
     def test_recent_unlock_consumed_by_one_opening(self):
-        self.manager.build_event('a', self.unlock())
+        unlocked = self.manager.build_event('a', self.unlock())
         first = self.manager.build_event('a', self.door(True))
+        self.assertEqual(first['opening_id'], unlocked['opening_id'])
+        self.assertEqual(first['time'], unlocked['time'])
         self.assertEqual(first['open_direction'], 'outside')
         self.assertEqual(first['opened_by_name'], '张三')
         self.manager.build_event('a', self.door(False))
         second = self.manager.build_event('a', self.door(True))
+        self.assertNotEqual(second['opening_id'], first['opening_id'])
         self.assertEqual(second['open_direction'], 'inside')
         self.assertIsNone(second['unlock_user_id'])
 
@@ -151,12 +154,29 @@ class LockOpeningTests(unittest.TestCase):
         self.assertEqual(event['open_direction'], 'inside')
 
     def test_label_cannot_call_an_inside_opening_fingerprint(self):
-        self.assertEqual(self.status.format_unlock_label(7, '张三', 'inside', None), '内开（人员未知）')
+        self.assertEqual(self.status.format_unlock_label(7, '张三', 'inside', None), '内开')
         self.assertEqual(self.status.format_unlock_label(7, '张三', 'outside', 'fingerprint'), '张三外开（指纹）')
         self.assertEqual(self.status.format_unlock_label(None, None, 'outside', 'key'), '外开（钥匙，人员未知）')
         self.assertEqual(self.status.format_unlock_label(7, '张三', 'inside', 'fingerprint'), '张三外开（指纹）')
-        self.assertEqual(self.status.format_unlock_label(7, '张三', 'outside', 'face'), '内开（人员未知）')
-        self.assertEqual(self.status.format_unlock_label(7, '张三', 'unknown', None), '内开（人员未知）')
+        self.assertEqual(self.status.format_unlock_label(7, '张三', 'outside', 'face'), '内开')
+        self.assertEqual(self.status.format_unlock_label(7, '张三', 'unknown', None), '内开')
+
+    def test_opening_identity_is_stable_when_timestamped_unlock_is_replayed_after_reload(self):
+        packet = self.unlock(timestamp=20)
+        first = self.manager.build_event('a', packet)
+        self.manager.remove('a')
+        second = self.manager.build_event('a', packet)
+        self.assertEqual(first['opening_id'], second['opening_id'])
+
+    def test_openings_always_have_a_valid_time(self):
+        for timestamp in (None, 'bad', -1, float('nan'), float('inf')):
+            with self.subTest(timestamp=timestamp), patch.object(self.module.time, 'time', return_value=1234):
+                self.manager.remove('a')
+                unlocked = self.manager.build_event('a', self.unlock(timestamp=timestamp))
+                self.assertEqual(unlocked['time'], 1234)
+                self.manager.remove('a')
+                opened = self.manager.build_event('a', {**self.door(True), 'time': timestamp})
+                self.assertEqual(opened['time'], 1234)
 
     def test_nonfinite_correlation_is_rejected(self):
         self.assertIsNone(self.status.resolve_opened_by({'user_id': 7}, float('nan')))
@@ -185,7 +205,7 @@ class CoordinatorOpeningTests(unittest.TestCase):
         coordinator._lock_user_names = {}
         coordinator._lock_user_names_shared = {'a/7': '张三', 'b/7': '李四'}
         coordinator.lock_events = logic.LockEventManager(coordinator.lock_user_name)
-        coordinator.lock_media = types.SimpleNamespace(attach_urls=lambda *args: {})
+        coordinator.lock_media = types.SimpleNamespace(attach_urls=lambda *args: {}, record_opening=MagicMock())
         coordinator.hass = types.SimpleNamespace(bus=types.SimpleNamespace(async_fire=MagicMock()))
         coordinator._redaction_salt = b'salt'
         coordinator._schedule_lock_reset = MagicMock()
@@ -210,6 +230,15 @@ class CoordinatorOpeningTests(unittest.TestCase):
         self.dispatcher.dispatch('a', packet)
         self.assertEqual(state['open_direction'], 'inside')
         self.assertIsNone(state['unlock_user_id'])
+
+    def test_only_current_opening_events_are_sent_to_history(self):
+        self.coordinator._publish_lock_event('a', {'properties': {'doorLock': {'doorState': 'off'}}})
+        self.coordinator.lock_media.record_opening.assert_not_called()
+        for timestamp in (20, 10):
+            self.coordinator._publish_lock_event('a', {'cmd': 352, 'time': timestamp, 'event': {
+                'server': 'doorLock', 'name': 'unlockEvent', 'value': {'type': 'fingerprint', 'userId': 7}}})
+        self.assertEqual(self.coordinator.lock_media.record_opening.call_count, 1)
+        self.assertFalse(self.coordinator.lock_media.record_opening.call_args.args[1].get('historical', False))
 
     def test_number_name_mapping_resolves_each_outside_opening(self):
         status = __import__(self.coordinator.lock_events.__module__.rsplit('.', 1)[0] + '.lock_status', fromlist=['lock_status'])

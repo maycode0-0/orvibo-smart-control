@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -130,6 +131,85 @@ class MediaSourceIdTests(unittest.TestCase):
                 history.media_source_id(root, f),
                 "media-source://orvibo_smart_control/archive/w-lock/ring_1785672298.jpg",
             )
+
+
+class OpeningHistoryTests(unittest.TestCase):
+    def test_openings_are_persistent_sorted_and_independent_of_media(self):
+        with tempfile.TemporaryDirectory() as td:
+            directory = history.history_dir(td, 'lock')
+            history.save_opening_event(directory, {
+                'opening_id': 'outside', 'time': 100, 'open_direction': 'outside',
+                'unlock_user_id': 0, 'unlock_user_name': '管理员', 'unlock_method': 'fingerprint',
+                'file': '/private/path',
+            })
+            history.save_opening_event(directory, {
+                'opening_id': 'inside', 'time': 200, 'open_direction': 'inside',
+                'unlock_user_id': 7, 'unlock_user_name': '旧用户', 'unlock_method': 'password',
+            })
+            records = history.list_opening_events(td, 'lock')
+            self.assertEqual([record['id'] for record in records], ['inside', 'outside'])
+            self.assertEqual(records[0], {'id': 'inside', 'time': 200, 'open_direction': 'inside'})
+            self.assertEqual(records[1]['unlock_user_id'], '0')
+            self.assertEqual(records[1]['unlock_user_name'], '管理员')
+            self.assertNotIn('file', records[1])
+            self.assertEqual(history.list_history(td, 'lock'), [])
+            self.assertEqual(history.list_opening_events(td, 'other'), [])
+            self.assertFalse(list(directory.glob('*.part')))
+
+    def test_matching_door_event_updates_one_record_and_respects_limit(self):
+        with tempfile.TemporaryDirectory() as td:
+            directory = history.history_dir(td, 'lock')
+            for identity, timestamp in (('first', 100), ('second', 200), ('third', 300)):
+                history.save_opening_event(directory, {
+                    'opening_id': identity, 'time': timestamp, 'open_direction': 'outside',
+                }, limit=2)
+            history.save_opening_event(directory, {
+                'opening_id': 'second', 'time': 200, 'open_direction': 'outside',
+                'opened_by_user_id': 7, 'opened_by_name': '张三',
+            }, limit=2)
+            records = history.list_opening_events(td, 'lock')
+            self.assertEqual(len(records), 2)
+            self.assertEqual(records[1]['unlock_user_name'], '张三')
+            self.assertEqual(len(history.list_opening_events(td, 'lock', 1)), 1)
+
+    def test_malformed_storage_cannot_break_save_or_expose_inside_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            directory = history.history_dir(td, 'lock')
+            path = directory / 'opening_events.json'
+            path.write_text(json.dumps([
+                {'id': 'bad-time', 'time': 'broken'}, None,
+                {'id': 'boolean', 'time': True}, {'id': 'negative', 'time': -1},
+                {'id': 'inside', 'time': 100, 'open_direction': 'inside', 'unlock_user_name': '旧用户'},
+            ]), encoding='utf-8')
+            self.assertEqual(history.list_opening_events(td, 'lock'), [
+                {'id': 'inside', 'time': 100, 'open_direction': 'inside'},
+            ])
+            history.save_opening_event(directory, {'opening_id': 'valid', 'time': 200})
+            self.assertEqual(len(history.list_opening_events(td, 'lock')), 2)
+            path.write_text('{broken', encoding='utf-8')
+            self.assertEqual(history.list_opening_events(td, 'lock'), [])
+            history.save_opening_event(directory, {'opening_id': 'valid', 'time': 200})
+            self.assertEqual(len(history.list_opening_events(td, 'lock')), 1)
+
+    def test_invalid_event_cannot_select_path_or_create_storage(self):
+        with tempfile.TemporaryDirectory() as td:
+            directory = history.history_dir(td, 'lock')
+            for event in ({'opening_id': '../escape', 'time': 1},
+                          {'opening_id': 'bad', 'time': -1},
+                          {'opening_id': 'bad', 'time': float('inf')}):
+                history.save_opening_event(directory, event)
+            self.assertEqual(list(directory.iterdir()), [])
+
+    def test_cleanup_prunes_openings_by_age_and_count(self):
+        with tempfile.TemporaryDirectory() as td:
+            directory = history.history_dir(td, 'lock')
+            now = int(time.time())
+            for identity, timestamp in (('old', now - 8 * 86400), ('one', now - 3), ('two', now - 2), ('three', now - 1)):
+                history.save_opening_event(directory, {'opening_id': identity, 'time': timestamp})
+            self.assertEqual(history.cleanup(td, keep_days=7, device_id='lock', max_entries=2), 2)
+            self.assertEqual([record['id'] for record in history.list_opening_events(td, 'lock')], ['three', 'two'])
+            self.assertEqual(history.cleanup(td, keep_days=0, device_id='lock'), 2)
+            self.assertFalse(directory.exists())
 
 
 class CleanupTests(unittest.TestCase):

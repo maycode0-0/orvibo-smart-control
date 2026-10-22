@@ -14,7 +14,10 @@ import urllib.request
 from .cos_media import CosMediaManager
 from .const import DEFAULT_LOCK_SNAPSHOT_LIMIT, MAX_LOCK_SNAPSHOT_LIMIT
 from .device_types import DeviceCategory, classify_device
-from .history import history_dir, latest_snapshot, save_snapshot, trim_snapshots
+from .history import (
+    history_dir, latest_snapshot, list_opening_events, save_opening_event,
+    save_snapshot, trim_snapshots,
+)
 from .redact import fingerprint
 from .video_archive import VideoArchiver, normalize_event_object_key
 
@@ -82,14 +85,16 @@ class LockMediaManager:
         self._latest_snapshot: dict[str, tuple[int, int]] = {}
         self._sequence = 0
         self._tasks: set[asyncio.Task] = set()
+        self._opening_tasks: dict[str, set[asyncio.Task]] = {}
         self._stopped = False
         self._history_cleanup_unsub = None
 
-    def _create_task(self, coroutine: Any) -> None:
+    def _create_task(self, coroutine: Any) -> Any:
         task = self.hass.async_create_task(coroutine)
         if isinstance(task, asyncio.Task):
             self._tasks.add(task)
             task.add_done_callback(self._tasks.discard)
+        return task
 
     async def _finish_local_job(self, function: Any, *args: Any) -> Any:
         """Finish disk writes/deletions before releasing a per-device lock."""
@@ -168,6 +173,37 @@ class LockMediaManager:
     def unregister_camera(self, device_id: str, camera: Any) -> None:
         if self._cameras.get(device_id) is camera:
             self._cameras.pop(device_id, None)
+
+    def record_opening(self, device_id: str, event: dict[str, Any]) -> None:
+        """Persist opening metadata even when no camera or capture is available."""
+        if self._stopped or not event.get("opening_id"):
+            return
+        task = self._create_task(self._save_opening(device_id, dict(event)))
+        if isinstance(task, asyncio.Task):
+            tasks = self._opening_tasks.setdefault(device_id, set())
+            tasks.add(task)
+            task.add_done_callback(tasks.discard)
+
+    async def _save_opening(self, device_id: str, event: dict[str, Any]) -> None:
+        try:
+            async with self._snapshot_locks.setdefault(device_id, asyncio.Lock()):
+                def persist() -> None:
+                    directory = history_dir(self.hass.config.path("media"), device_id)
+                    save_opening_event(directory, event)
+
+                await self._finish_local_job(persist)
+        except OSError as error:
+            _LOGGER.warning("门锁开门记录保存失败: %s", type(error).__name__)
+
+    async def list_openings(self, device_id: str, limit: int = 100) -> list[dict[str, Any]]:
+        pending = tuple(self._opening_tasks.get(device_id, ()))
+        if pending:
+            await asyncio.shield(asyncio.gather(*pending))
+        async with self._snapshot_locks.setdefault(device_id, asyncio.Lock()):
+            records = await self.hass.async_add_executor_job(
+                list_opening_events, self.hass.config.path("media"), device_id, limit,
+            )
+        return [{**record, "device_id": device_id} for record in records]
 
     async def _restore_snapshot(self, device_id: str, camera: Any) -> None:
         try:
@@ -410,8 +446,9 @@ class LockMediaManager:
         if self._history_cleanup_unsub is not None:
             self._history_cleanup_unsub()
             self._history_cleanup_unsub = None
-        for task in tuple(self._tasks):
-            if not task.cancelling():
+        opening_tasks = {task for tasks in self._opening_tasks.values() for task in tasks}
+        for task in tuple(self._tasks - opening_tasks):
+            if not task.done():
                 task.cancel()
 
     async def async_shutdown(self) -> None:
@@ -430,10 +467,14 @@ class LockMediaManager:
     ) -> int:
         from .history import cleanup
 
-        return await self.hass.async_add_executor_job(
-            cleanup,
-            self.hass.config.path("media"),
-            keep_days,
-            device_id or None,
-            max_entries,
-        )
+        removed = 0
+        devices = [device_id] if device_id else [
+            did for did, device in list(self.devices.items())
+            if classify_device(device) == DeviceCategory.DOOR_LOCK
+        ]
+        for did in devices:
+            async with self._snapshot_locks.setdefault(did, asyncio.Lock()):
+                removed += await self._finish_local_job(
+                    cleanup, self.hass.config.path("media"), keep_days, did, max_entries,
+                )
+        return removed

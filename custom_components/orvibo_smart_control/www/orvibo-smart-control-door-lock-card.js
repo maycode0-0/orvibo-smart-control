@@ -3,13 +3,14 @@
  *
  * 功能：
  *  - 门锁状态总览（锁状态/门磁/电池/最近截图）
+ *  - 独立开门记录（内外开/时间/外开人员与方式）
  *  - 下发临时密码（type/minutes/number/phone/name，可选短信）
  *  - 临时密码列表管理（查看/删除/过期状态）
  *
  * 用法（Lovelace 卡片）：
  *   type: custom:orvibo-smart-control-door-lock-card
  *   device_id: "<your-door-lock-device-id>"   # 可选，留空自动选第一把门锁
- *   history_limit: 30                         # 可选，卡片显示的历史截图数量
+ *   history_limit: 30                         # 可选，卡片显示的开门记录与历史截图数量
  *
  * 仅显示临时密码管理：
  *   type: custom:orvibo-smart-control-temp-password-card
@@ -51,6 +52,13 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     this._eventsLoading = false;
     this._eventsError = "";
     this._eventsRequest = null;
+    this._openings = [];
+    this._openingsOpen = true;
+    this._openingsLoaded = false;
+    this._openingsLoading = false;
+    this._openingsError = "";
+    this._openingsRequest = null;
+    this._openingsLastState = "";
     this._snapshotImages = new Map();
     this._snapshotActive = 0;
     this._historyLimit = 30;
@@ -91,6 +99,12 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     this._eventsLoading = false;
     this._eventsError = "";
     this._eventsRequest = null;
+    this._openings = [];
+    this._openingsLoaded = false;
+    this._openingsLoading = false;
+    this._openingsError = "";
+    this._openingsRequest = null;
+    this._openingsLastState = "";
     this._eventsLastCam = "";
     this._lightboxEvent = null;
     const requestedHistoryLimit = Number(this._config.history_limit);
@@ -121,7 +135,7 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
   }
 
   getCardSize() {
-    return this._config.temp_password_only ? 5 : 8;
+    return this._config.temp_password_only ? 5 : 11;
   }
 
   async _loadEntities() {
@@ -286,15 +300,40 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     const direction = this._attr(entity, "open_direction");
     const name = this._attr(entity, "unlock_user_name");
     const method = this._attr(entity, "unlock_method");
-    const methods = { fingerprint: "指纹", password: "密码", temporary_password: "临时密码",
-      card: "卡片", key: "钥匙", face: "人脸" };
     const hasEvent = state && !["无", "unknown", "unavailable"].includes(state);
     return {
-      label: !hasEvent ? "暂无开门记录" : direction === "inside" ? "人员未知" : name || state,
-      direction: hasEvent ? ({ inside: "内开", outside: "外开" }[direction] || "") : "",
-      detail: hasEvent ? [direction === "inside" ? null : methods[method], this._shortTime(this._attr(entity, "unlock_time"))]
+      label: !hasEvent ? "暂无开门记录" : direction === "inside" ? "内开" : name || state,
+      direction: hasEvent && direction === "outside" ? "外开" : "",
+      icon: direction === "inside" ? "mdi:door-open" : "mdi:account-outline",
+      detail: hasEvent ? [direction === "inside" ? null : this._unlockMethodLabel(method), this._shortTime(this._attr(entity, "unlock_time"))]
         .filter(Boolean).join(" · ") : "开门后在这里查看",
     };
+  }
+
+  _unlockMethodLabel(method) {
+    return { fingerprint: "指纹", password: "密码", temporary_password: "临时密码",
+      card: "卡片", key: "钥匙", face: "人脸" }[method] || "";
+  }
+
+  _openingStateKey() {
+    return JSON.stringify([this._entities.unlock, this._entities.door].map((id) => this._hass?.states[id] || null));
+  }
+
+  _openingsMarkup() {
+    const error = this._openingsError
+      ? `<div class="message error" role="status">${this._escapeHtml(this._openingsError)}</div>` : "";
+    if (!this._openings.length) {
+      return `${error}<div class="empty" role="status">${this._openingsLoading ? "正在加载开门记录…" : "暂无开门记录"}</div>`;
+    }
+    return `${error}<ol class="openings-list" aria-label="开门记录">${this._openings.map((record) => {
+      const outside = record.open_direction === "outside";
+      const label = !outside ? (record.open_direction === "inside" ? "内开" : "开门")
+        : record.unlock_user_name || (record.unlock_user_id != null && record.unlock_user_id !== "" ? `用户${record.unlock_user_id}` : "外开");
+      const detail = [outside ? this._unlockMethodLabel(record.unlock_method) : "", this._fmtTs(record.time)].filter(Boolean).join(" · ");
+      return `<li class="opening-record"><ha-icon icon="${outside ? "mdi:account-outline" : "mdi:door-open"}"></ha-icon>
+        <div class="opening-content"><div class="opening-record-name">${this._escapeHtml(label)}</div><div class="meta">${this._escapeHtml(detail)}</div></div>
+        ${outside && label !== "外开" ? '<span class="direction-tag">外开</span>' : ""}</li>`;
+    }).join("")}</ol>`;
   }
 
   _shortTime(ts) {
@@ -367,6 +406,7 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     const selection = active && typeof active.selectionStart === "number"
       ? [active.selectionStart, active.selectionEnd] : null;
     const scrollLeft = root.querySelector(".events")?.scrollLeft || 0;
+    const openingsScrollTop = root.querySelector(".openings-list")?.scrollTop || 0;
     const e = this._entities;
     const lockState = this._lockState();
     const lock = {
@@ -382,6 +422,7 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     const battery = this._batterySummary();
     const opening = this._openingSummary();
     const tempOnly = this._config.temp_password_only === true;
+    if (!tempOnly && (!this._openingsLoaded || this._openingStateKey() !== this._openingsLastState)) this._loadOpenings();
     const camera = e.camera ? this._hass.states[e.camera] : null;
     const camKey = camera ? `${camera.state}|${camera.last_updated}` : "";
     if (!tempOnly && (!this._eventsLoaded || (camKey && camKey !== this._eventsLastCam))) this._loadEvents();
@@ -409,11 +450,18 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
             </div>
           </section>
           <section class="opening" aria-label="最近开门">
-            <span class="opening-icon"><ha-icon icon="mdi:account-outline"></ha-icon></span>
+            <span class="opening-icon"><ha-icon icon="${opening.icon}"></ha-icon></span>
             <div class="opening-content"><div class="eyebrow">最近开门</div>
               <div class="opening-name">${this._escapeHtml(opening.label)}</div>
               ${opening.detail ? `<div class="meta">${this._escapeHtml(opening.detail)}</div>` : ""}</div>
             ${opening.direction ? `<span class="direction-tag">${opening.direction}</span>` : ""}
+          </section>
+          <section class="section opening-history-section">
+            <div class="list-heading"><button type="button" class="section-toggle" id="ov-openings-toggle" aria-expanded="${this._openingsOpen}" aria-controls="ov-openings-list">
+              <span class="section-label"><ha-icon icon="mdi:history"></ha-icon>开门记录${this._openings.length ? `<span class="count">${this._openings.length}</span>` : ""}</span>
+              <ha-icon icon="mdi:chevron-${this._openingsOpen ? "up" : "down"}"></ha-icon></button>
+              <button type="button" class="icon-button ${this._openingsLoading ? "loading" : ""}" id="ov-openings-refresh" title="刷新开门记录" aria-label="刷新开门记录" ${this._openingsLoading ? "disabled" : ""}><ha-icon icon="mdi:refresh"></ha-icon></button></div>
+            <div id="ov-openings-list" ${this._openingsOpen ? "" : "hidden"}>${this._openingsOpen ? this._openingsMarkup() : ""}</div>
           </section>
           <section class="section history-section">
             <div class="section-title"><div><span class="section-label"><ha-icon icon="mdi:camera-outline"></ha-icon>猫眼抓拍</span>
@@ -458,6 +506,8 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
       this._lastListAt = 0; this._listLoaded = false; this._listOpen = true; this._loadList();
     });
     root.querySelector("#ov-events-refresh")?.addEventListener("click", () => this._loadEvents(true));
+    root.querySelector("#ov-openings-toggle")?.addEventListener("click", () => { this._openingsOpen = !this._openingsOpen; this._render(); });
+    root.querySelector("#ov-openings-refresh")?.addEventListener("click", () => { this._openingsOpen = true; this._loadOpenings(true); });
     root.querySelectorAll("button[data-aid]").forEach((button) => {
       button.addEventListener("click", () => this._revoke(Number(button.getAttribute("data-aid"))));
     });
@@ -490,6 +540,8 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     }
     const rail = root.querySelector(".events");
     if (rail) rail.scrollLeft = scrollLeft;
+    const openingList = root.querySelector(".openings-list");
+    if (openingList) openingList.scrollTop = openingsScrollTop;
     const restored = focusId ? root.querySelector(`#${focusId}`) : null;
     if (restored) {
       restored.focus?.({ preventScroll: true });
@@ -535,6 +587,11 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
       .opening { display:flex; gap:12px; align-items:center; padding:18px 0 2px; }
       .opening-content { flex:1; }
       .opening-name { font-size:16px; font-weight:600; overflow-wrap:anywhere; }
+      .openings-list { list-style:none; margin:4px 0 0; padding:0; max-height:280px; overflow-y:auto; scrollbar-width:thin; }
+      .opening-record { display:flex; align-items:center; gap:10px; min-height:62px; padding:10px 2px; border-bottom:1px solid var(--divider-color); }
+      .opening-record:last-child { border-bottom:0; }
+      .opening-record > ha-icon { color:var(--secondary-text-color); }
+      .opening-record-name { font-weight:500; overflow-wrap:anywhere; }
       .direction-tag, .count { border-radius:6px; background:var(--ov-surface); padding:3px 9px; font-size:12px; white-space:nowrap; }
       .section { border-top:1px solid var(--divider-color); margin-top:16px; padding-top:10px; }
       .section.first { border-top:0; margin-top:0; padding-top:0; }
@@ -1001,6 +1058,37 @@ class OrviboSmartControlDoorLockCard extends HTMLElement {
     }
     if (this._eventsRequest !== request) return;
     this._eventsLoading = false;
+    this._render();
+  }
+
+  async _loadOpenings(force = false) {
+    if (!this._hass || !this._deviceId || this._openingsLoading || this._config.temp_password_only) return;
+    this._openingsLoading = true;
+    this._openingsError = "";
+    this._openingsLastState = this._openingStateKey();
+    const request = {};
+    this._openingsRequest = request;
+    const deviceId = this._deviceId;
+    if (force) this._render();
+    try {
+      const result = await this._hass.callWS({
+        type: "call_service", domain: "orvibo_smart_control", service: "list_openings",
+        service_data: { device_id: deviceId, limit: this._historyLimit }, return_response: true,
+      });
+      if (this._openingsRequest !== request) return;
+      const res = result?.response;
+      if (res?.error) throw new Error(res.error);
+      if (!Array.isArray(res?.openings)) throw new Error("开门记录响应无效，请刷新重试");
+      this._openings = res.openings.filter((record) => record && typeof record.id === "string"
+        && Number.isInteger(record.time) && record.time >= 0)
+        .sort((a, b) => b.time - a.time).slice(0, this._historyLimit);
+    } catch (error) {
+      if (this._openingsRequest !== request) return;
+      this._openingsError = error.message || String(error);
+    }
+    if (this._openingsRequest !== request) return;
+    this._openingsLoaded = true;
+    this._openingsLoading = false;
     this._render();
   }
 }

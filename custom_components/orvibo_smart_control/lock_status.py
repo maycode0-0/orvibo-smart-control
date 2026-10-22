@@ -379,7 +379,7 @@ def format_unlock_label(
     if direction is not None:
         direction = unlock_direction(method)
         if direction == "inside":
-            return "内开（人员未知）"
+            return "内开"
         who = str(name).strip() if name else ""
         if not who and user_id not in (None, ""):
             who = f"用户{user_id}"

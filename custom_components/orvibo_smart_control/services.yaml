@@ -86,9 +86,30 @@ list_events:
       required: false
       example: 50
 
+list_openings:
+  name: 列出开门记录
+  description: 按时间倒序查询本地开门记录；内开只返回方向和时间，外开可含人员及开锁方式
+  target: {}
+  fields:
+    entry_id:
+      name: 配置项 ID
+      description: 多配置项时建议提供
+      required: false
+      example: "0123456789abcdef"
+    device_id:
+      name: 设备 ID
+      description: 门锁设备 ID
+      required: true
+      example: "w-example-door-lock-id"
+    limit:
+      name: 返回条数
+      description: 最多返回 1–500 条记录（默认 100）
+      required: false
+      example: 30
+
 cleanup_history:
-  name: 清理门锁媒体历史
-  description: 按保留天数和可选条数限制删除旧截图与录像
+  name: 清理门锁历史
+  description: 按保留天数和可选条数限制删除旧开门记录、截图与录像
   target: {}
   fields:
     entry_id:

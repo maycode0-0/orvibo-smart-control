@@ -25,6 +25,7 @@ SERVICE_PROBE_VIDEO_STREAM = "probe_video_stream"
 SERVICE_SET_LOCK_USER_NAME = "set_lock_user_name"
 SERVICE_FETCH_VIDEO = "fetch_video"
 SERVICE_LIST_EVENTS = "list_events"
+SERVICE_LIST_OPENINGS = "list_openings"
 SERVICE_CLEANUP_HISTORY = "cleanup_history"
 SERVICE_GRANT_TEMP_PASSWORD = "grant_temp_password"
 SERVICE_REVOKE_TEMP_PASSWORD = "revoke_temp_password"
@@ -259,6 +260,31 @@ async def async_register_services(hass: HomeAssistant) -> None:
             )
         return {"removed": total}
 
+    async def handle_list_openings(call: ServiceCall) -> dict[str, Any]:
+        device_id = str(call.data.get("device_id") or "").strip()
+        if not device_id:
+            return {"error": "需要门锁 device_id"}
+        limit = _bounded_int(call.data.get("limit"), 100, 1, 500)
+        records: dict[str, dict[str, Any]] = {}
+        for coordinator in _targets(hass, call.data.get("entry_id")):
+            if not _is_lock(coordinator, device_id):
+                continue
+            for record in await coordinator.async_list_openings(device_id, limit):
+                public = {
+                    key: record[key]
+                    for key in ("id", "device_id", "time", "open_direction")
+                    if key in record
+                }
+                if record.get("open_direction") == "outside":
+                    public.update({
+                        key: record[key]
+                        for key in ("unlock_method", "unlock_user_id", "unlock_user_name")
+                        if key in record
+                    })
+                records[str(record["id"])] = public
+        openings = sorted(records.values(), key=lambda item: item["time"], reverse=True)
+        return {"openings": openings[:limit]}
+
     async def handle_grant_temp_password(call: ServiceCall) -> dict[str, Any]:
         device_id = str(call.data.get("device_id") or "").strip()
         auth_type = _bounded_int(call.data.get("type"), 2, 1, 2)
@@ -336,6 +362,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         (SERVICE_PROBE_VIDEO_STREAM, handle_probe_video_stream),
         (SERVICE_FETCH_VIDEO, handle_fetch_video),
         (SERVICE_LIST_EVENTS, handle_list_events),
+        (SERVICE_LIST_OPENINGS, handle_list_openings),
         (SERVICE_CLEANUP_HISTORY, handle_cleanup_history),
         (SERVICE_GRANT_TEMP_PASSWORD, handle_grant_temp_password),
         (SERVICE_REVOKE_TEMP_PASSWORD, handle_revoke_temp_password),

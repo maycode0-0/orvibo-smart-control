@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
+import hashlib
 import math
 import time
 from typing import Any, Callable, Mapping, Optional
+from uuid import uuid4
 
 from .lock_status import (
     normalize_door_lock_properties,
@@ -117,10 +119,24 @@ class LockEventManager:
             data.update(event)
 
         if event is not None and event.get("kind") == "unlock":
+            # Keep one identity for an unlock and the following door opening.
+            # Producer timestamps also make replayed packets idempotent on disk.
             try:
                 event_time = float(event.get("time"))
             except (TypeError, ValueError, OverflowError):
                 event_time = None
+            if event_time is None or not math.isfinite(event_time) or event_time < 0:
+                event_time = None
+                data["time"] = int(time.time())
+            else:
+                data["time"] = int(event_time)
+            data["opening_id"] = (
+                hashlib.sha256(repr(signature).encode()).hexdigest()[:16]
+                if event_time is not None else uuid4().hex[:16]
+            )
+            name = self._resolve_name(device_id, event.get("unlock_user_id"), event.get("unlock_method"))
+            if name:
+                data["unlock_user_name"] = name
             if event_time is not None and math.isfinite(event_time):
                 if event_time < self._latest_unlock_times.get(device_id, event_time):
                     # Still archive the picture, but do not change the latest
@@ -133,12 +149,10 @@ class LockEventManager:
                 "unlock_type": event.get("unlock_type"),
                 "open_direction": event.get("open_direction", "inside"),
                 "unlock_method": event.get("unlock_method"),
-                "time": event.get("time"),
+                "time": data.get("time"),
+                "opening_id": data["opening_id"],
                 "at": now,
             }
-            name = self._resolve_name(device_id, event.get("unlock_user_id"), event.get("unlock_method"))
-            if name:
-                data["unlock_user_name"] = name
 
         previous_door = self._door_states.get(device_id)
         if lock["door_open"] is not None:
@@ -147,6 +161,13 @@ class LockEventManager:
             self._last_unlocks.pop(device_id, None)
         if lock["door_open"] is True and previous_door is not True:
             data["door_opened"] = True
+            data["opening_id"] = uuid4().hex[:16]
+            try:
+                data["time"] = int(raw_status.get("time"))
+                if data["time"] < 0:
+                    raise ValueError("negative_opening_time")
+            except (TypeError, ValueError, OverflowError):
+                data["time"] = int(time.time())
             # Openings without a matching outside credential follow the inside policy.
             data["open_direction"] = "inside"
             data["unlock_method"] = None
@@ -171,6 +192,8 @@ class LockEventManager:
                 except (TypeError, ValueError, OverflowError):
                     elapsed = self._door_open_window + 1
             if last_unlock is not None and 0 <= elapsed <= self._door_open_window:
+                data["opening_id"] = last_unlock["opening_id"]
+                data["time"] = last_unlock["time"]
                 method = last_unlock.get("unlock_method") or normalize_unlock_method(last_unlock.get("unlock_type"))
                 data["open_direction"] = unlock_direction(method)
                 if last_unlock.get("open_direction") == "inside" and data["open_direction"] != "outside":
