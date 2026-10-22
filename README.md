@@ -1,7 +1,7 @@
 # ORVIBO Smart Control
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![Version](https://img.shields.io/badge/version-2.0.0b1-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
+[![Version](https://img.shields.io/badge/version-2.0.0b2-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
 
 ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。它把 MixPad
 网关局域网直连与 ORVIBO 云端协议放在同一条设备、状态和控制链路中：能在 LAN
@@ -10,8 +10,9 @@ ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。�
 ## 2.0 版本
 
 `2.0.0b0` 基于 `0.2.6b17`，开启 `2.0` 版本线，包含基于 HomeMate 5.2.6.307
-逆向证据的协议重构。当前 `2.0.0b1` 修复摄像机/NVR 支持状态显示，开发分支仍为 `2.0`，具体变更见
-[发布说明](docs/releases/2.0.0b1.md) 与 [CHANGELOG](CHANGELOG.md)。
+逆向证据的协议重构。当前 `2.0.0b2` 增加独立开门记录，并简化内开显示；包含 b1 的
+摄像机/NVR 支持状态修复。开发分支仍为 `2.0`，具体变更见
+[发布说明](docs/releases/2.0.0b2.md) 与 [CHANGELOG](CHANGELOG.md)。
 
 本次统一类型 `0`、`116` 和其中虚拟 MixPad 调光器的亮度编码、回读及状态单位；
 为明确标记为 RF 的 `34/35` 窗帘提供开、关、停，不提供位置滑块或猜测的关闭状态。
@@ -69,7 +70,7 @@ LAN > 云端实时推送（SSL）> 云端快照（REST）> 乐观状态 > 初始
 ### 摄像机与录像机实时画面
 
 从 `0.2.6b4` 起，为匹配成功的 Meari XTS/p2p=2 摄像机及录像机在线通道创建 `camera` 实体。
-在 HACS 更新到 `v2.0.0b1` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
+在 HACS 更新到 `v2.0.0b2` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
 “通道 3”等摄像头实体；也可把实体加入图片概览卡片并设置 `camera_view: live`。
 HAOS 使用自带 FFmpeg，无需单独安装视频服务。首次连接需要获取授权和建立设备连接，
 可能需要数十秒；首次缩略图超时后再次打开即可复用正在建立的连接。
@@ -175,6 +176,7 @@ MD5 摘要；配置项不保存明文，但该摘要仍可直接用于认证，�
 
 集成还提供：
 
+- 独立开门记录：内开只显示方向和时间，外开可显示人员及开锁方式；无抓拍也会保存；
 - `orvibo_smart_control_lock_event` 事件，用于开锁、门铃、撬锁和门未关等自动化；
 - 门锁事件图片签名、H.264 录像归档及 Home Assistant 媒体浏览器索引；
 - 临时密码下发、查询、撤销和每 6 小时的过期回收；
@@ -184,6 +186,9 @@ MD5 摘要；配置项不保存明文，但该摘要仍可直接用于认证，�
 最近开门突出姓名、内外开方向、方式和时间，内开不显示旧的外开人员或凭据。
 猫眼抓拍增加最新图片大预览、横滑历史缩略图和可用键盘翻页的大图；刷新失败保留已有图片。
 相关状态更新保留正在填写的内容与输入焦点，卡片适配手机窄列和深浅色主题。
+`2.0.0b2` 增加“开门记录”列表，可折叠和手动刷新，收到新开门状态时自动更新；
+内开直接显示“内开”，不再显示“人员未知”。记录保存在本地，重载后保留，每把锁最多
+500 条，按 7 天策略定期清理。只记录升级后收到的开门事件，不从历史抓拍推断或回填。
 `0.2.6b17` 为猫眼抓拍增加下载超时与自动重试，避免图片请求一直 Pending 时永久空白：
 最多同时下载 2 张，每次请求最多等待 12 秒，失败后重新解析地址并重试一次；
 最新预览、缩略图和大图复用已下载图片，仍失败时显示提示，可点击刷新重试。
@@ -191,14 +196,14 @@ MD5 摘要；配置项不保存明文，但该摘要仍可直接用于认证，�
 避免偶发显示 `Custom element doesn't exist` 配置错误。
 `0.2.6b15` 修复集成在 Home Assistant 启动过早或已运行后加载、重载时没有再次注册
 Lovelace 卡片资源的问题，避免录像回放卡片和门锁卡片同时显示 `Custom element doesn't exist`。
-在 HACS 更新到 **v2.0.0b1**，重启 Home Assistant 后强制刷新浏览器即可。
+在 HACS 更新到 **v2.0.0b2**，重启 Home Assistant 后强制刷新浏览器即可。
 抓拍修复的历史记录见 [0.2.6b17 说明](docs/releases/0.2.6b17.md)。
 
 `0.2.6b14` 修复升级后资源地址可能回退、需要删除并重新添加 JavaScript 资源的问题：
 Home Assistant 启动完成后再次核对并原地更新资源，保留资源条目与卡片配置。
 同时修正抓拍解析参数与媒体引用路径，使用集成独立的鉴权媒体源读取现有图片和录像，
 无需配置 `media_dirs` 或搬动已保存的文件。
-这些修复已包含在 **v2.0.0b1** 中，升级后重启 Home Assistant 并强制刷新浏览器。
+这些修复已包含在 **v2.0.0b2** 中，升级后重启 Home Assistant 并强制刷新浏览器。
 本地回归与模拟浏览器验证已通过，实际 HA 升级后的资源更新和抓拍读取仍需设备确认。
 详见 [0.2.6b14 历史说明](docs/releases/0.2.6b14.md)。
 

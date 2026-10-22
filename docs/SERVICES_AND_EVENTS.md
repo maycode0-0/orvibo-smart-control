@@ -4,7 +4,7 @@
 把请求发送给错误的家庭。可以在“设置 -> 设备与服务 -> ORVIBO Smart Control”中找到
 配置项 ID。
 
-本文覆盖 `2.0.0b1`。新增的原生调光和 RF 窗帘使用 HA
+本文覆盖 `2.0.0b2`（含 `list_openings`）。新增的原生调光和 RF 窗帘使用 HA
 标准实体动作，没有新增集成专用服务；完整支持条件见 [设备支持矩阵](DEVICE_SUPPORT.md)。
 
 ## 灯光与窗帘标准动作
@@ -25,7 +25,8 @@
 | `set_lock_user_name`   | 设置或清除门锁用户编号的显示名 | 无                                    |
 | `fetch_video`          | 拉取并归档一个门锁事件录像     | `ok`、`media_id` 或 `error`           |
 | `list_events`          | 查询已归档的门锁图片/录像      | `events`                              |
-| `cleanup_history`      | 按时间或条数清理门锁媒体       | `removed`                             |
+| `list_openings`        | 查询本地开门记录              | `openings`                            |
+| `cleanup_history`      | 按时间或条数清理开门记录及媒体 | `removed`                             |
 | `grant_temp_password`  | 创建门锁临时授权               | 新授权元数据；仅本次响应含 `password` |
 | `revoke_temp_password` | 删除指定临时授权               | `ok`、`authorized_id` 或 `error`      |
 | `list_temp_passwords`  | 读取服务器端授权元数据         | 按设备 ID 分组；不含密码              |
@@ -96,7 +97,7 @@ data:
 多把锁可以使用 `设备ID/用户ID=姓名`；不同开锁方式可能复用编号，可使用
 `设备ID/fingerprint/用户ID=姓名`、`设备ID/password/用户ID=姓名` 等更精确的映射。
 匹配顺序为设备及方式、方式、设备、通用用户编号；编号 `0` 有效。服务修改仅对当前运行期
-生效且按设备隔离；重载后以集成选项为准。名字缺失时显示用户编号，内开未上报身份时显示人员未知。
+生效且按设备隔离；重载后以集成选项为准。外开名字缺失时显示用户编号；内开只显示“内开”，不展示人员。
 
 ## 媒体归档
 
@@ -142,6 +143,26 @@ data:
 response_variable: lock_history
 ```
 
+### `list_openings`
+
+查询集成已经接收并保存在本地的开门事件，独立于图片/录像历史，不需要抓拍或摄像头实体。
+`device_id` 必填且必须属于目标配置项的门锁；`entry_id` 可选，`limit` 默认 100，范围 1–500。
+响应 `openings` 按时间倒序，每条包含 `id`、`device_id`、Unix 秒时间戳 `time`、
+`open_direction`；仅外开可含 `unlock_method`、`unlock_user_id`、`unlock_user_name`。
+内开不保存人员和凭据方式。姓名保留事件当时的映射结果，修改映射不会改写历史。
+
+```yaml
+action: orvibo_smart_control.list_openings
+data:
+  device_id: w-example-door-lock-id
+  limit: 30
+response_variable: lock_openings
+```
+
+开锁及归属窗口内的后续门磁开门合并为同一条记录。每把锁最多保留 500 条，重载后仍可读取；
+只记录升级后收到的事件，不回填历史抓拍。内外开按既有推断规则分类，详见
+[门锁方向、开门记录及抓拍](lock-opening-and-snapshots.md)。
+
 ### `cleanup_history`
 
 | 字段          | 默认           | 限制                            |
@@ -162,6 +183,8 @@ response_variable: cleanup_result
 集成启动时会执行一次默认清理，之后每 7 天运行一次。录像默认保留 7 天，抓拍按每把锁的
 数量保留，默认最近 30 次；集成选项“门锁抓拍保留数量”支持 `1..500`。自动按天清理
 不会删除保留范围内的抓拍。手动调用 `cleanup_history` 仍可显式删除抓拍。
+开门记录同样按 7 天策略定期清理；手动设置 `max_entries` 时，开门记录和媒体文件分别
+按设备裁剪。`removed` 返回删除的开门记录数与媒体文件数之和，清理仅作用于目标配置项的门锁。
 
 ## 临时密码
 
