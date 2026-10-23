@@ -1,7 +1,7 @@
 # ORVIBO Smart Control
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![Version](https://img.shields.io/badge/version-2.0.0b2-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
+[![Version](https://img.shields.io/badge/version-2.0.0b3-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
 
 ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。它把 MixPad
 网关局域网直连与 ORVIBO 云端协议放在同一条设备、状态和控制链路中：能在 LAN
@@ -10,9 +10,10 @@ ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。�
 ## 2.0 版本
 
 `2.0.0b0` 基于 `0.2.6b17`，开启 `2.0` 版本线，包含基于 HomeMate 5.2.6.307
-逆向证据的协议重构。当前 `2.0.0b2` 增加独立开门记录，并简化内开显示；包含 b1 的
-摄像机/NVR 支持状态修复。开发分支仍为 `2.0`，具体变更见
-[发布说明](docs/releases/2.0.0b2.md) 与 [CHANGELOG](CHANGELOG.md)。
+逆向证据的协议重构。当前 `2.0.0b3` 修复摄像机首次连接进度被读取超时打断及断线
+重试时旧连接清理造成的 503，并增加视频桥诊断；包含 b2 的独立开门记录与内开显示。
+开发分支仍为 `2.0`，具体变更见
+[发布说明](docs/releases/2.0.0b3.md) 与 [CHANGELOG](CHANGELOG.md)。
 
 本次统一类型 `0`、`116` 和其中虚拟 MixPad 调光器的亮度编码、回读及状态单位；
 为明确标记为 RF 的 `34/35` 窗帘提供开、关、停，不提供位置滑块或猜测的关闭状态。
@@ -70,7 +71,7 @@ LAN > 云端实时推送（SSL）> 云端快照（REST）> 乐观状态 > 初始
 ### 摄像机与录像机实时画面
 
 从 `0.2.6b4` 起，为匹配成功的 Meari XTS/p2p=2 摄像机及录像机在线通道创建 `camera` 实体。
-在 HACS 更新到 `v2.0.0b2` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
+在 HACS 更新到 `v2.0.0b3` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
 “通道 3”等摄像头实体；也可把实体加入图片概览卡片并设置 `camera_view: live`。
 HAOS 使用自带 FFmpeg，无需单独安装视频服务。首次连接需要获取授权和建立设备连接，
 可能需要数十秒；首次缩略图超时后再次打开即可复用正在建立的连接。
@@ -196,7 +197,7 @@ MD5 摘要；配置项不保存明文，但该摘要仍可直接用于认证，�
 避免偶发显示 `Custom element doesn't exist` 配置错误。
 `0.2.6b15` 修复集成在 Home Assistant 启动过早或已运行后加载、重载时没有再次注册
 Lovelace 卡片资源的问题，避免录像回放卡片和门锁卡片同时显示 `Custom element doesn't exist`。
-在 HACS 更新到 **v2.0.0b2**，重启 Home Assistant 后强制刷新浏览器即可。
+在 HACS 更新到 **v2.0.0b3**，重启 Home Assistant 后强制刷新浏览器即可。
 抓拍修复的历史记录见 [0.2.6b17 说明](docs/releases/0.2.6b17.md)。
 
 `0.2.6b14` 修复升级后资源地址可能回退、需要删除并重新添加 JavaScript 资源的问题：

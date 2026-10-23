@@ -178,13 +178,13 @@ class MeariVideoBridge:
         self._url: str | None = None
         self._runner: web.AppRunner | None = None
         self._active: asyncio.Task | None = None
+        self._active_request: web.Request | None = None
         self._closed = False
         self._start_lock = asyncio.Lock()
         self._warming: asyncio.Task | None = None
         self._prepared: _Prepared | None = None
         self._expiry: asyncio.Task | None = None
         self._recovery: asyncio.Task | None = None
-        self._ever_streamed = False
         self._playback_consumed = False
         self._worker_stage: str | None = None
         self._source_codec: str | None = None
@@ -197,6 +197,8 @@ class MeariVideoBridge:
         self._output_bytes = 0
         self._last_error_stage: str | None = None
         self._last_error_reason: str | None = None
+        self._http_503_count = 0
+        self._last_http_error_reason: str | None = None
         self.last_stage = "idle"
 
     @property
@@ -214,6 +216,8 @@ class MeariVideoBridge:
             "last_frame_age_seconds": None if self._last_frame_at is None else round(max(0, now - self._last_frame_at), 1),
             "last_error_stage": self._last_error_stage,
             "last_error_reason": self._last_error_reason,
+            "http_503_count": self._http_503_count,
+            "last_http_error_reason": self._last_http_error_reason,
             "recovery_in_progress": self._recovery is not None and not self._recovery.done(),
         }
 
@@ -266,7 +270,11 @@ class MeariVideoBridge:
             self._prepared = ready
             self._expiry = asyncio.create_task(self._expire(ready))
             return
-        await asyncio.shield(self._ensure_warm())
+        try:
+            await asyncio.shield(self._ensure_warm())
+        except _StreamError:
+            self._schedule_recovery()
+            raise
 
     async def _warm(self) -> None:
         session = _Session()
@@ -335,7 +343,7 @@ class MeariVideoBridge:
         return ready
 
     def _schedule_recovery(self) -> None:
-        if (self._closed or self._source_mode != "live" or not self._ever_streamed
+        if (self._closed or self._source_mode != "live"
                 or self._recovery is not None and not self._recovery.done()):
             return
         self._recovery = asyncio.create_task(self._recover())
@@ -427,11 +435,27 @@ class MeariVideoBridge:
                 return
             await asyncio.sleep(0.25)
 
+    def _unavailable(self, reason: str) -> web.Response:
+        self._http_503_count += 1
+        self._last_http_error_reason = reason
+        return web.Response(status=503, text="Video unavailable")
+
     async def _handle(self, request: web.Request) -> web.StreamResponse:
-        if (self._closed or self._active is not None
-                or self._source_mode == "playback" and self._playback_consumed):
-            return web.Response(status=503, text="Video unavailable")
+        previous = self._active
+        if previous is not None and self._active_request is not None:
+            transport = self._active_request.transport
+            if transport is None or transport.is_closing():
+                # The reader can reopen before the disconnect watcher and child
+                # cleanup finish. Give that closed reader time to release ownership.
+                await asyncio.wait((previous,), timeout=WRITE_TIMEOUT)
+        if self._closed:
+            return self._unavailable("bridge_closed")
+        if self._active is not None:
+            return self._unavailable("source_busy")
+        if self._source_mode == "playback" and self._playback_consumed:
+            return self._unavailable("playback_selection_required")
         self._active = asyncio.current_task()
+        self._active_request = request
         session = _Session()
         recover = False
         try:
@@ -462,12 +486,13 @@ class MeariVideoBridge:
                 await _finish_uninterrupted(session.close())
             finally:
                 self._active = None
+                self._active_request = None
                 if recover:
                     self._schedule_recovery()
         if session.response is not None:
             session.response.force_close()
             return session.response
-        return web.Response(status=503, text="Video unavailable")
+        return self._unavailable("source_unavailable")
 
     async def _prepare(self, session: _Session) -> _Prepared:
         async with asyncio.timeout(FIRST_FRAME_TIMEOUT):
@@ -534,9 +559,10 @@ class MeariVideoBridge:
                 await asyncio.shield(self._warming)
             ready = await self._take_ready()
             if ready is None:
-                if self._ever_streamed and self._source_mode == "live":
-                    # HA retries the saved URL without calling camera.prepare.
-                    # Keep a slow retry warm-up alive across its 30s open limit.
+                if self._source_mode == "live":
+                    # HA can open/retry the saved URL after preparation expires,
+                    # even before the first successful read. Keep one bounded
+                    # warm-up alive across its shorter source-open deadline.
                     await asyncio.shield(self._ensure_warm())
                     ready = await self._take_ready()
                     if ready is None:
@@ -560,7 +586,6 @@ class MeariVideoBridge:
             except OSError:
                 raise _ClientDisconnected() from None
             self._output_bytes += len(ready.first)
-            self._ever_streamed = True
             if self._source_mode == "playback":
                 self._playback_consumed = True
             self.last_stage = "streaming"

@@ -105,6 +105,8 @@ class StreamBridgeTests(unittest.IsolatedAsyncioTestCase):
                 # The source is consumed once by HA Stream, even with many HA viewers.
                 duplicate = await client.get(url)
                 self.assertEqual(duplicate.status, 503)
+                self.assertEqual(bridge.diagnostics["last_http_error_reason"], "source_busy")
+                self.assertEqual(bridge.diagnostics["http_503_count"], 1)
                 await duplicate.release()
                 self.assertEqual(self.calls, 1)
                 response.close()
@@ -143,7 +145,7 @@ class StreamBridgeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             await bridge.async_start()
 
-    async def test_disconnect_during_silent_bootstrap_cancels_factory(self):
+    async def test_disconnect_during_silent_playback_bootstrap_cancels_factory(self):
         started, stopped = asyncio.Event(), asyncio.Event()
 
         async def factory():
@@ -153,7 +155,11 @@ class StreamBridgeTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 stopped.set()
 
-        bridge, url = await self.bridge(factory)
+        bridge = self.module.MeariVideoBridge(
+            "trusted-ffmpeg", factory, source_mode="playback", _worker_path=self.worker,
+        )
+        self.bridges.append(bridge)
+        url = await bridge.async_start()
         async with ClientSession() as client:
             request = asyncio.create_task(client.get(url))
             await started.wait()
@@ -163,6 +169,150 @@ class StreamBridgeTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(stopped.wait(), 2)
         self.assertFalse(self.processes)
         await self.wait_stopped(bridge)
+
+    async def test_first_live_reader_timeout_keeps_warmup_for_next_reader(self):
+        started, proceed = asyncio.Event(), asyncio.Event()
+
+        async def factory():
+            self.calls += 1
+            started.set()
+            await proceed.wait()
+            return {"secret": "CLOUD-SECRET"}
+
+        bridge, url = await self.bridge(factory)
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg):
+            async with ClientSession() as client:
+                request = asyncio.create_task(client.get(url))
+                await asyncio.wait_for(started.wait(), 2)
+                # A saved HA source may open after its prepared pipeline expired.
+                # Model PyAV giving up before the first P2P connection is ready.
+                request.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await request
+                await self.wait_stopped(bridge)
+                self.assertIsNotNone(bridge._warming)
+                proceed.set()
+                response = await asyncio.wait_for(client.get(url), 3)
+                self.assertEqual(response.status, 200)
+                self.assertEqual(self.calls, 1)
+                self.assertEqual(len(self.processes), 2)
+                response.close()
+                await self.wait_stopped(bridge)
+
+    async def test_first_live_failure_warms_replacement_for_http_retry(self):
+        async def factory():
+            self.calls += 1
+            if self.calls == 1:
+                raise OSError("CLOUD-SECRET")
+            return {"secret": "CLOUD-SECRET"}
+
+        bridge, url = await self.bridge(factory)
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg), patch.object(self.module, "RECOVERY_BACKOFF", 0.01):
+            async with ClientSession() as client:
+                async with client.get(url) as response:
+                    self.assertEqual(response.status, 503)
+                    self.assertEqual(bridge.diagnostics["last_http_error_reason"], "source_unavailable")
+                for _ in range(200):
+                    if bridge._prepared is not None:
+                        break
+                    await asyncio.sleep(0.01)
+                self.assertIsNotNone(bridge._prepared)
+                response = await client.get(url)
+                self.assertEqual(response.status, 200)
+                self.assertEqual(self.calls, 2)
+                response.close()
+                await self.wait_stopped(bridge)
+
+    async def test_first_camera_prepare_failure_warms_replacement_with_finite_retries(self):
+        bridge, url = await self.bridge()
+        original = bridge._context_factory
+
+        async def failed():
+            self.calls += 1
+            raise OSError("CLOUD-SECRET")
+
+        bridge._context_factory = failed
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg), patch.object(self.module, "RECOVERY_BACKOFF", 0.01):
+            with self.assertRaises(RuntimeError):
+                await bridge.async_prepare()
+            recovery = bridge._recovery
+            self.assertIsNotNone(recovery)
+            await asyncio.wait_for(asyncio.shield(recovery), 3)
+            self.assertEqual(self.calls, 1 + self.module.RECOVERY_ATTEMPTS)
+            self.assertIsNone(bridge._prepared)
+            self.assertFalse(bridge.diagnostics["recovery_in_progress"])
+            bridge._context_factory = original
+            await bridge.async_prepare()
+            async with ClientSession() as client:
+                response = await client.get(url)
+                self.assertEqual(response.status, 200)
+                response.close()
+                await self.wait_stopped(bridge)
+
+    async def test_abandoned_first_live_warmup_expires_without_reconnecting(self):
+        started, proceed = asyncio.Event(), asyncio.Event()
+
+        async def factory():
+            self.calls += 1
+            started.set()
+            await proceed.wait()
+            return {"secret": "CLOUD-SECRET"}
+
+        bridge, url = await self.bridge(factory)
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg), patch.object(self.module, "PREPARED_TIMEOUT", 0.1):
+            async with ClientSession() as client:
+                request = asyncio.create_task(client.get(url))
+                await asyncio.wait_for(started.wait(), 2)
+                warming = bridge._warming
+                request.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await request
+                await self.wait_stopped(bridge)
+                proceed.set()
+                await asyncio.wait_for(asyncio.shield(warming), 3)
+                await asyncio.wait_for(asyncio.shield(bridge._expiry), 3)
+        self.assertIsNone(bridge._prepared)
+        self.assertIsNone(bridge._warming)
+        self.assertEqual(self.calls, 1)
+        self.assertEqual(bridge.last_stage, "idle")
+        self.assertFalse(bridge.diagnostics["recovery_in_progress"])
+        self.assertTrue(all(process.returncode is not None for process in self.processes))
+
+    async def test_new_reader_waits_for_disconnected_reader_cleanup(self):
+        self.worker.write_text(WORKER_PREAMBLE + f'''
+emit(b'J',json.dumps({EVENT!r}).encode())
+emit(b'V',b'first-frame')
+time.sleep(60)
+''', encoding="utf-8")
+        disconnected, release = asyncio.Event(), asyncio.Event()
+        bridge, url = await self.bridge()
+        watch = bridge._watch_disconnect
+
+        async def delayed_disconnect(request):
+            await watch(request)
+            disconnected.set()
+            await release.wait()
+
+        bridge._watch_disconnect = delayed_disconnect
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg):
+            async with ClientSession() as client:
+                response = await client.get(url)
+                self.assertEqual(response.status, 200)
+                response.close()
+                await asyncio.wait_for(disconnected.wait(), 2)
+                retry = asyncio.create_task(client.get(url))
+                try:
+                    # The old socket is closed, but its request still owns
+                    # the pipeline until cleanup can finish.
+                    await asyncio.sleep(0.05)
+                    self.assertFalse(retry.done())
+                finally:
+                    release.set()
+                response = await asyncio.wait_for(retry, 3)
+                self.assertEqual(response.status, 200)
+                self.assertEqual(self.calls, 2)
+                response.close()
+                await self.wait_stopped(bridge)
 
     async def test_startup_timeout_kills_silent_worker_without_public_exception_contents(self):
         self.worker.write_text(WORKER_PREAMBLE + "time.sleep(60)", encoding="utf-8")
