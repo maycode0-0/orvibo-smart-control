@@ -93,7 +93,8 @@
                     "availability_notifications": "Configure device availability notifications",
                     "update_check": "Configure integration update check",
                     "lock_users": "Lock user mapping",
-                    "lock_snapshots": "Lock snapshot retention"
+                    "lock_snapshots": "Lock snapshot retention",
+                    "camera_video": "Live camera quality"
                 }
             },
             "transport_mode": {
@@ -101,6 +102,13 @@
                 "description": "Combined (default): LAN-first with cloud fallback. LAN only: no cloud realtime connection or periodic cloud polling after initial discovery. Cloud only: do not connect to MixPad.",
                 "data": {
                     "transport_mode": "Transport mode"
+                }
+            },
+            "camera_video": {
+                "title": "Live camera quality",
+                "description": "Fluent requests a lower quality offered by each camera to reduce host load. Image detail may decrease; the actual benefit depends on the device. Cameras without a known alternative keep the default stream. Applies to all live previews after saving and reloading the integration; recording playback is unchanged.",
+                "data": {
+                    "camera_stream_quality": "Preview quality"
                 }
             },
             "lan_credentials": {
@@ -124,7 +132,7 @@
                 "description": "Deletes only this integration's local lock media directory and optionally resets general options. Account, family, selected devices, entity registry, and Home Assistant .storage are preserved.",
                 "data": {
                     "clear_media": "Delete local lock media",
-                    "reset_general_options": "Reset transport, LAN credentials, polling, notification, and update options",
+                    "reset_general_options": "Reset transport, LAN credentials, polling, notification, update, and camera quality options",
                     "confirm": "I understand and confirm"
                 }
             },
@@ -225,7 +233,8 @@
             "no_visible_devices": "All discovered devices are hidden by the name rules",
             "lan_credentials_required": "Enter the independent MixPad username and password",
             "invalid_service": "Use a service in domain.service format",
-            "invalid_snapshot_limit": "Enter a whole number from 1 to 500."
+            "invalid_snapshot_limit": "Enter a whole number from 1 to 500.",
+            "invalid_camera_quality": "Select a preview quality from the list."
         },
         "abort": {
             "reauth_successful": "Signed in successfully; existing device and entity settings were preserved",
@@ -234,6 +243,12 @@
         }
     },
     "selector": {
+        "camera_stream_quality": {
+            "options": {
+                "default": "Default camera stream",
+                "fluent": "Fluent (lower image quality, reduced host load)"
+            }
+        },
         "transport_mode": {
             "options": {
                 "auto": "LAN and cloud (default, LAN first with cloud fallback)",

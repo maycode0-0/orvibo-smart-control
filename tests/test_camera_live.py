@@ -126,6 +126,20 @@ class CameraLiveTests(unittest.IsolatedAsyncioTestCase):
         bootstrap.assert_not_called()
         self.assertEqual(entities, [])
 
+    async def test_fluent_setting_applies_to_live_cameras_only(self):
+        for setting, expected in (("fluent", "fluent"), ("default", "default"), ("bad", "default")):
+            with self.subTest(setting=setting):
+                _, hass, entry = self.platform({"selected_device_ids": ["nvr"], "camera_stream_quality": setting})
+                description = self.module.LiveCameraDescription("nvr", "vendor-nvr", 3, True)
+                bootstrap = types.SimpleNamespace(discover=AsyncMock(return_value=[description]))
+                entities = []
+                with patch.object(self.module, "LiveCameraBootstrap", return_value=bootstrap):
+                    await self.module.async_setup_entry(hass, entry, entities.extend)
+                live, playback = entities
+                self.assertEqual(live._bridge.diagnostics["requested_quality"], expected)
+                self.assertEqual(playback._bridge.diagnostics["source_mode"], "playback")
+                self.assertIsNone(playback._bridge.diagnostics["requested_quality"])
+
     async def test_retry_does_not_add_partial_lock_entities(self):
         _, hass, entry = self.platform()
         bootstrap = types.SimpleNamespace(discover=AsyncMock(side_effect=ValueError("SECRET")))

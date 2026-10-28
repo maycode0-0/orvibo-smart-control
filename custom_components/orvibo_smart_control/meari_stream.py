@@ -166,11 +166,16 @@ class MeariVideoBridge:
         self, ffmpeg_binary: str,
         context_factory: Callable[[], Awaitable[Mapping[str, Any]]], *,
         source_mode: str = "live",
+        stream_quality: str = "default",
         _worker_path: Path | None = None,
     ) -> None:
         if source_mode not in ("live", "playback"):
             raise ValueError("invalid_source_mode")
+        if stream_quality not in ("default", "fluent") or (source_mode == "playback" and stream_quality != "default"):
+            raise ValueError("invalid_stream_quality")
         self._source_mode = source_mode
+        self._stream_quality = stream_quality
+        self._requested_stream_id: int | None = None
         self._ffmpeg_binary = ffmpeg_binary
         self._context_factory = context_factory
         self._worker_path = _worker_path or WORKER
@@ -208,6 +213,8 @@ class MeariVideoBridge:
         return {
             "stage": self.last_stage, "worker_stage": self._worker_stage,
             "source_mode": self._source_mode, "source_codec": self._source_codec,
+            "requested_quality": self._stream_quality if self._source_mode == "live" else None,
+            "requested_stream_id": self._requested_stream_id,
             "playback_consumed": self._playback_consumed,
             "output_codec": "h264", "connection_attempts": self._attempts,
             "reconnect_count": max(0, self._attempts - 1), "failure_count": self._failures,
@@ -226,6 +233,10 @@ class MeariVideoBridge:
             self._worker_stage = event["probe_stage"]
         if event.get("codec") in ("h264", "hevc"):
             self._source_codec = event["codec"]
+        stream_id = event.get("requested_stream_id")
+        if (self._source_mode == "live" and type(stream_id) is int
+                and stream_id in (0, 1, 2, 3, 100)):
+            self._requested_stream_id = stream_id
 
     def _video(self, payload: bytes) -> None:
         self._frames += 1
@@ -498,12 +509,17 @@ class MeariVideoBridge:
         async with asyncio.timeout(FIRST_FRAME_TIMEOUT):
             self._attempts += 1
             self._worker_stage = None
+            self._requested_stream_id = None
             context = await self._context_factory()
+            if not isinstance(context, Mapping):
+                raise _StreamError()
+            if self._source_mode == "live":
+                context = {**context, "stream_quality": self._stream_quality}
             try:
                 body = json.dumps(context, separators=(",", ":"), allow_nan=False).encode()
             except (ValueError, TypeError, RecursionError):
                 raise _StreamError() from None
-            if not isinstance(context, Mapping) or len(body) > MAX_CONTEXT_BYTES:
+            if len(body) > MAX_CONTEXT_BYTES:
                 raise _StreamError()
             dependency_args: tuple[str, ...] = ()
             spec = find_spec("Crypto")

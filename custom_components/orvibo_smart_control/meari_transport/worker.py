@@ -144,6 +144,9 @@ def validate_context(value: object) -> dict:
         # Only the ordinary single-preview path is currently ported.
         raise ValueError("invalid_context")
     result = {**value, "timeout_seconds": float(timeout)}
+    quality = value.get("stream_quality", "default")
+    if quality not in ("default", "fluent") or (value.get("hdd") and quality != "default"):
+        raise ValueError("invalid_context")
     if "hdd" in value:
         result["hdd"] = _hdd_protocol().validate_request(value["hdd"])
         # Ordinary XTS IPC recordings use channel 0; NVRs retain their channel.
@@ -330,11 +333,40 @@ class Observation:
         return False
 
 
+def _live_stream_id(context: dict) -> int:
+    """Use only HomeMate's advertised quality IDs; unknown capabilities keep 0.
+
+    Static APK evidence: docs/meari-live-video.md, source quality section.
+    A lower quality does not establish the returned codec or actual resolution.
+    """
+    if context.get("stream_quality", "default") != "fluent":
+        return 0
+    capability = context["device"].get("capability")
+    caps = capability.get("caps") if isinstance(capability, dict) else None
+    if not isinstance(caps, dict) or caps.get("vst") == 1:
+        return 0
+    profiles = caps.get("bps2")
+    if isinstance(profiles, dict) and profiles:
+        # HomeMate labels profile 0 as SD. Do not substitute an HD/QHD profile
+        # when SD is absent: the default stream's actual quality is unknown.
+        return 100 if isinstance(profiles.get("0"), str) else 0
+    bps = caps.get("bps")
+    if type(bps) is int and 0 < bps <= 0xFFFFFFFF:
+        # Capability bits 1..9 map to the APK's fixed resolution table.
+        # Only the APK's SD entries (240P, 360P, 480P) are eligible.
+        for stream_id in (2, 1, 3):
+            if bps & (1 << stream_id):
+                return stream_id
+    return 0
+
+
 def _vvp(lib: SimpleNamespace, context: dict, command: int, sequence: int) -> bytes:
     """Use explicit native auth choices, never the reference length heuristic."""
     packet = bytearray(lib.protocol.build_vvp_packet(
         command, sequence, context["device"]["hostKey"],
-        channel=context["channel_id"], stream_id=0, stream_flag=0,
+        channel=context["channel_id"],
+        stream_id=_live_stream_id(context) if command == lib.protocol.VVP_CMD_START_LIVE else 0,
+        stream_flag=0,
     ))
     # Native auth finalizes the initially zero header word as network-order 1.
     host_key = context["device"]["hostKey"]
@@ -676,6 +708,9 @@ def main() -> int:
             count += 1
             record = {"probe_stage": stage, "final": bool(final), "decoded": False}
             if summary:
+                stream_id = summary.get("requested_stream_id")
+                if type(stream_id) is int and stream_id in (0, 1, 2, 3, 100):
+                    record["requested_stream_id"] = stream_id
                 for key in ("video_frames", "video_bytes", "received_packets"):
                     value = summary.get(key)
                     if type(value) is int and 0 <= value <= 2**31 - 1:
@@ -702,6 +737,8 @@ def main() -> int:
         def emit_video(payload: bytes, summary: dict) -> None:
             nonlocal first_video
             if first_video:
+                if not context.get("hdd"):
+                    summary = {**summary, "requested_stream_id": _live_stream_id(context)}
                 emit("video_keyframe_received", summary=summary)
                 first_video = False
             binary_output.write(b"V", payload)

@@ -31,6 +31,37 @@ HAOS 自带 FFmpeg；本集成声明 `ffmpeg` 与 `stream` 依赖，不需要额
 保持原有视频输出字节、分辨率和帧率。FFmpeg 转码仍会消耗 CPU；本地解析性能对照
 不代表 HA 整机的占用降幅。升级后请结合实际 CPU 曲线和页面连接情况判断改善程度。
 
+## 源画质选择（2.0.0b5）
+
+集成的“配置 → 摄像机实时画质”增加可选的“流畅”档。默认仍请求原来的码流编号 0；
+流畅档只在当前设备或 NVR 当前通道明确上报标清能力时请求该档，画面细节可能减少。
+保存选项会重载集成，重新打开实时画面后生效；该选项适用于本配置项的全部实时预览，
+录像回放继续使用独立的原有请求。
+
+- `bps2` 上报 profile `0` 时请求码流 `100`，对应 HomeMate 的标清档。
+- 旧 `bps` 位图只选择已上报的标清编号，按 `2`（240P）、`1`（360P）、`3`（480P）优先。
+- `vst=1`、没有标清档或能力缺失时保留编号 `0`；不猜测其他编号、不自动轮询不同档位。
+- camera-tags、实际 NVR 通道、鉴权与录像命令不因画质设置改变。
+
+`video_diagnostics.requested_quality` 显示 `default` / `fluent`，
+`requested_stream_id` 在收到首个可输出关键帧后显示实际请求的编号。编号 `0` 表示保留
+默认请求；该字段记录发送的请求，不能证明固件已按该档返回画面。实际编码仍以
+`source_codec` 为准，流畅档不保证改为 H.264，软件转码仍会运行。
+
+静态依据来自 HomeMate `5.2.6.307`（APK SHA256 与 [首帧协议](meari-video-probe.md) 相同）：
+`com/orvibo/homemate/device/meari/video/z.java:22–52,70–86` 根据 `vst`、`bps2` 或 `bps`
+生成可选画质；`res/values/arrays.xml:377–430` 对应标清 profile 0 → 100，以及旧编号
+1/2/3 → 360P/240P/480P；`com/meari/sdk/utils/SdkUtils.java:777–813` 也将现代 profile
+映射为 `100 + profile`。VVP 请求的 `0x38` 为画质编号，`0x39` 为 camera-tags，见首帧协议。
+这里复用已有 JADX/Apktool 导出做离线核对，没有执行 APK，也没有联网操作真实摄像机。
+
+用户确认 `2.0.0b4`、2 vCPU / 4 GiB 虚拟机中，单路播放时 HAOS 总 CPU 持续约 38%–43%，
+内存约 1.3/4 GiB。截图没有逐进程 CPU 数据，不能单独量化 FFmpeg 与协议进程各自占比。
+流畅档的实际分辨率、CPU 降幅和首次加载稳定性均需真机验证；不提升 `hardware_verified`。
+增加到 4 vCPU 可为 HA 提供更多运行余量，但不等于视频计算量减半，也不会自动启用核显。
+离线全量 856 项测试通过、无跳过，包含原有真实 FFmpeg 转码与 PyAV 解码，以及新增的
+配置、标清能力门控、VVP 请求字节、私有参数传递和诊断过滤回归。
+
 ## 媒体与生命周期
 
 - 平台按 App 的 Device.uid == CameraInfo.deviceID 匹配选中的设备，按真实通道编号

@@ -15,7 +15,9 @@ from .capabilities import TransportMode
 from .camera_metadata import CAMERA_CATEGORIES, camera_stream_supported
 from .cloud import CHINA_CLOUD, CloudEndpoint, cloud_for_region
 from .const import (
+    CAMERA_STREAM_QUALITIES,
     CONF_AVAILABILITY_NOTIFICATIONS,
+    CONF_CAMERA_STREAM_QUALITY,
     CONF_CLOUD_REGION,
     CONF_FAMILY_ID,
     CONF_LAN_PASSWORD,
@@ -36,6 +38,7 @@ from .const import (
     CONF_UPDATE_CHECK_INTERVAL_HOURS,
     CONF_USE_INDEPENDENT_LAN_CREDENTIALS,
     CONF_USERNAME,
+    DEFAULT_CAMERA_STREAM_QUALITY,
     DEFAULT_POLL_INTERVAL_MINUTES,
     DEFAULT_UPDATE_CHECK_INTERVAL_HOURS,
     DOMAIN,
@@ -73,6 +76,7 @@ CONF_RESET_GENERAL_OPTIONS = "reset_general_options"
 
 _GENERAL_OPTION_KEYS = frozenset(
     {
+        CONF_CAMERA_STREAM_QUALITY,
         CONF_TRANSPORT_MODE,
         CONF_USE_INDEPENDENT_LAN_CREDENTIALS,
         CONF_LAN_USERNAME,
@@ -654,7 +658,36 @@ class OrviboSmartControlOptionsFlow(config_entries.OptionsFlow):
                 "update_check",
                 "lock_users",
                 "lock_snapshots",
+                "camera_video",
             ],
+        )
+
+    async def async_step_camera_video(self, user_input=None):
+        """Choose a source quality for live previews after the entry reloads."""
+        options = dict(self._config_entry.options)
+        errors = {}
+        if user_input is not None:
+            quality = user_input.get(CONF_CAMERA_STREAM_QUALITY)
+            if quality not in CAMERA_STREAM_QUALITIES:
+                errors["base"] = "invalid_camera_quality"
+            else:
+                options[CONF_CAMERA_STREAM_QUALITY] = quality
+                return self.async_create_entry(title="", data=options)
+        current = options.get(CONF_CAMERA_STREAM_QUALITY, DEFAULT_CAMERA_STREAM_QUALITY)
+        if current not in CAMERA_STREAM_QUALITIES:
+            current = DEFAULT_CAMERA_STREAM_QUALITY
+        return self.async_show_form(
+            step_id="camera_video",
+            data_schema=vol.Schema({
+                vol.Required(CONF_CAMERA_STREAM_QUALITY, default=current): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=list(CAMERA_STREAM_QUALITIES),
+                        mode=selector.SelectSelectorMode.LIST,
+                        translation_key="camera_stream_quality",
+                    )
+                ),
+            }),
+            errors=errors,
         )
 
     async def async_step_transport_mode(self, user_input=None):

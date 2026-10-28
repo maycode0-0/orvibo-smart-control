@@ -110,6 +110,9 @@ def _load_config_flow():
             CONF_FAMILY_ID="family_id",
             CONF_LOCK_USER_NAMES="lock_user_names",
             CONF_LOCK_SNAPSHOT_LIMIT="lock_snapshot_limit",
+            CONF_CAMERA_STREAM_QUALITY="camera_stream_quality",
+            DEFAULT_CAMERA_STREAM_QUALITY="default",
+            CAMERA_STREAM_QUALITIES=("default", "fluent"),
             DEFAULT_LOCK_SNAPSHOT_LIMIT=30,
             MAX_LOCK_SNAPSHOT_LIMIT=500,
             CONF_TRANSPORT_MODE="transport_mode",
@@ -215,8 +218,33 @@ class TestOptionsReauth(unittest.IsolatedAsyncioTestCase):
                 "update_check",
                 "lock_users",
                 "lock_snapshots",
+                "camera_video",
             ],
         )
+
+    async def test_camera_quality_saves_and_preserves_other_options(self):
+        flow, entry = self._flow()
+        result = await flow.async_step_camera_video({"camera_stream_quality": "fluent"})
+        self.assertEqual(result["data"]["camera_stream_quality"], "fluent")
+        self.assertEqual(result["data"]["selected_device_ids"], ["device-1"])
+        self.assertNotIn("camera_stream_quality", entry.options)
+
+    async def test_camera_quality_rejects_unknown_values(self):
+        flow, _ = self._flow()
+        for value in (None, True, 100, "HD", {}, []):
+            with self.subTest(value=value):
+                result = await flow.async_step_camera_video({"camera_stream_quality": value})
+                self.assertEqual(result["type"], "form")
+                self.assertEqual(result["errors"], {"base": "invalid_camera_quality"})
+
+    async def test_camera_quality_selector_has_translated_explicit_choices(self):
+        flow, _ = self._flow()
+        self.module.selector.SelectSelectorConfig.reset_mock()
+        result = await flow.async_step_camera_video()
+        self.assertEqual(result["step_id"], "camera_video")
+        config = self.module.selector.SelectSelectorConfig.call_args.kwargs
+        self.assertEqual(config["options"], ["default", "fluent"])
+        self.assertEqual(config["translation_key"], "camera_stream_quality")
 
     async def test_snapshot_retention_saves_and_preserves_options(self):
         flow, entry = self._flow()

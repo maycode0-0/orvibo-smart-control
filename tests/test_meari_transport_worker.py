@@ -89,6 +89,18 @@ class ContextAndOutputTests(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         WORKER.validate_context(raw)
 
+    def test_quality_is_explicit_and_cannot_change_recording_requests(self):
+        for quality in ("default", "fluent"):
+            raw = {**context(), "stream_quality": quality}
+            self.assertEqual(WORKER.validate_context(raw)["stream_quality"], quality)
+        for quality in (None, True, 100, "HD", {}, []):
+            with self.subTest(quality=quality), self.assertRaises(ValueError):
+                WORKER.validate_context({**context(), "stream_quality": quality})
+        raw = {**context(), "stream_quality": "fluent",
+               "hdd": {"operation": "playback", "date": "20261015090000"}}
+        with self.assertRaises(ValueError):
+            WORKER.validate_context(raw)
+
     def test_isolated_script_rejects_input_without_leaking_secrets(self):
         result = subprocess.run([sys.executable, "-I", "-B", "-u", str(WORKER_PATH)], input=b'{"SECRET":"PRIVATE-HOSTKEY"}', capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 0)
@@ -129,6 +141,43 @@ class ProtocolTests(unittest.TestCase):
             self.assertEqual(struct.unpack_from(">I", packet, 0x30)[0], 8)
             self.assertEqual(struct.unpack_from("<I", packet, 0x34)[0], 7)
             self.assertEqual(packet[0x38:0x3C], b"\x00" * 4)
+
+    def test_fluent_modern_profile_changes_only_start_live_quality_byte(self):
+        raw = context()
+        raw["device"]["capability"] = {"caps": {"bps2": {
+            "2": "2560x1440@20", "0": "640x360@15", "1": "1920x1080@20",
+        }}}
+        baseline = WORKER._vvp(self.lib, raw, 0x11FF, 3)
+        raw["stream_quality"] = "fluent"
+        expected = bytearray(baseline)
+        expected[0x38] = 100
+        self.assertEqual(WORKER._vvp(self.lib, raw, 0x11FF, 3), bytes(expected))
+        for command in (0x12FF, 0x888E):
+            packet = WORKER._vvp(self.lib, raw, command, 4)
+            self.assertEqual(packet[0x34:0x3C], b"\x07\x00\x00\x00" + b"\x00" * 4)
+
+    def test_fluent_uses_only_known_advertised_profiles(self):
+        cases = (
+            ({"bps2": {"2": "2560x1440"}}, 0),
+            ({"bps2": {"3": "3840x2160"}}, 0),
+            ({"bps": (1 << 1) | (1 << 2) | (1 << 5)}, 2),
+            ({"bps": (1 << 1) | (1 << 5)}, 1),
+            ({"bps": 1 << 3}, 3),
+            ({"bps": 1 << 4}, 0),
+            ({"vst": 1, "bps2": {"0": "640x360"}, "bps": 6}, 0),
+            ({"bps2": {"99": "unknown"}, "bps": 6}, 0),
+            ({"bps2": {"0": {}}, "bps": 6}, 0),
+            ({"bps": True}, 0), ({"bps": 1}, 0), ({"bps": -1}, 0),
+            ({"bps": "6"}, 0), ({}, 0),
+        )
+        for caps, expected in cases:
+            with self.subTest(caps=caps):
+                raw = {**context(), "stream_quality": "fluent"}
+                raw["device"]["capability"] = {"caps": caps}
+                self.assertEqual(WORKER._live_stream_id(raw), expected)
+                self.assertEqual(WORKER._vvp(self.lib, raw, 0x11FF, 0)[0x38], expected)
+                raw["stream_quality"] = "default"
+                self.assertEqual(WORKER._live_stream_id(raw), 0)
 
     def test_native_auth_long_host_key_fixed_vector(self):
         raw = context()

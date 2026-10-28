@@ -131,6 +131,43 @@ class StreamBridgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.calls, 0)
         self.assertFalse(self.processes)
 
+    async def test_fluent_quality_reaches_private_worker_without_mutating_factory_context(self):
+        event = {**EVENT, "requested_stream_id": 100}
+        self.worker.write_text(WORKER_VIDEO.replace(
+            f"emit(b'J',json.dumps({EVENT!r}).encode())",
+            "assert context['stream_quality'] == 'fluent'\n"
+            + f"emit(b'J',json.dumps({event!r}).encode())",
+        ), encoding="utf-8")
+        shared = {"secret": "CLOUD-SECRET"}
+
+        async def factory():
+            return shared
+
+        bridge = self.module.MeariVideoBridge(
+            "trusted-ffmpeg", factory, stream_quality="fluent", _worker_path=self.worker,
+        )
+        self.bridges.append(bridge)
+        url = await bridge.async_start()
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg):
+            async with ClientSession() as client:
+                response = await client.get(url)
+                self.assertEqual(response.status, 200)
+                self.assertEqual(await response.content.readexactly(25), b"MPEGTS:ANNEXB-FIRST-FRAME")
+                self.assertEqual(bridge.diagnostics["requested_quality"], "fluent")
+                self.assertEqual(bridge.diagnostics["requested_stream_id"], 100)
+                response.close()
+                await self.wait_stopped(bridge)
+        self.assertEqual(shared, {"secret": "CLOUD-SECRET"})
+        self.assertNotIn("CLOUD-SECRET", repr(bridge.diagnostics))
+
+    def test_quality_diagnostics_reject_untrusted_values_and_playback_quality(self):
+        bridge = self.module.MeariVideoBridge("trusted-ffmpeg", self.factory)
+        for value in (True, "100", -1, 4, 99, 101, 104, 105, {}, []):
+            bridge._observe({"requested_stream_id": value})
+            self.assertIsNone(bridge.diagnostics["requested_stream_id"])
+        with self.assertRaises(ValueError):
+            self.module.MeariVideoBridge("trusted-ffmpeg", self.factory, source_mode="playback", stream_quality="fluent")
+
     async def test_unload_reaps_running_worker_and_transcoder_and_closes_socket(self):
         bridge, url = await self.bridge()
         with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg):

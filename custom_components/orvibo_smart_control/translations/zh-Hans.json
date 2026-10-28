@@ -93,7 +93,8 @@
                     "availability_notifications": "配置设备上下线通知",
                     "update_check": "配置集成更新检查",
                     "lock_users": "锁用户映射",
-                    "lock_snapshots": "门锁抓拍保留数量"
+                    "lock_snapshots": "门锁抓拍保留数量",
+                    "camera_video": "摄像机实时画质"
                 }
             },
             "transport_mode": {
@@ -101,6 +102,13 @@
                 "description": "LAN 与云端结合（默认）：LAN 优先并自动回退云端；纯 LAN：首次发现后不连接云端实时通道，也不周期轮询云端；纯云端：不连接 MixPad。",
                 "data": {
                     "transport_mode": "传输模式"
+                }
+            },
+            "camera_video": {
+                "title": "摄像机实时画质",
+                "description": "流畅档会请求各摄像机提供的较低画质，以减轻主机负载。画面细节可能减少，实际效果取决于设备；没有已知可选档的摄像机继续使用默认码流。保存并重新加载集成后，对所有实时预览生效，录像回放不受影响。",
+                "data": {
+                    "camera_stream_quality": "预览画质"
                 }
             },
             "lan_credentials": {
@@ -124,7 +132,7 @@
                 "description": "只删除本集成的本地门锁媒体目录，并可重置通用选项。账号、家庭、已选设备、实体注册和 Home Assistant .storage 均会保留。",
                 "data": {
                     "clear_media": "删除本地门锁媒体",
-                    "reset_general_options": "重置传输、LAN 凭据、轮询、通知和更新选项",
+                    "reset_general_options": "重置传输、LAN 凭据、轮询、通知、更新和摄像机画质选项",
                     "confirm": "我已了解并确认执行"
                 }
             },
@@ -225,7 +233,8 @@
             "no_visible_devices": "发现的设备已全部被名称规则隐藏",
             "lan_credentials_required": "请输入独立的 MixPad 用户名和密码",
             "invalid_service": "通知服务必须使用 domain.service 格式",
-            "invalid_snapshot_limit": "请输入 1–500 之间的整数。"
+            "invalid_snapshot_limit": "请输入 1–500 之间的整数。",
+            "invalid_camera_quality": "请从列表中选择预览画质。"
         },
         "abort": {
             "reauth_successful": "重新登录成功，现有设备和实体设置已保留",
@@ -234,6 +243,12 @@
         }
     },
     "selector": {
+        "camera_stream_quality": {
+            "options": {
+                "default": "摄像机默认码流",
+                "fluent": "流畅（降低画质，减轻主机负载）"
+            }
+        },
         "transport_mode": {
             "options": {
                 "auto": "LAN 与云端结合（默认，LAN 优先并自动回退）",

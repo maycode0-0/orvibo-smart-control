@@ -24,7 +24,10 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import (
+    CAMERA_STREAM_QUALITIES, CONF_CAMERA_STREAM_QUALITY,
+    DEFAULT_CAMERA_STREAM_QUALITY, DOMAIN,
+)
 from .camera_metadata import camera_stream_supported
 from .meari_live import LiveCameraBootstrap, LiveCameraDescription
 from .meari_stream import MeariVideoBridge, _finish_uninterrupted
@@ -68,10 +71,13 @@ async def async_setup_entry(
             # Raise before adding entities so a platform retry cannot duplicate locks.
             raise PlatformNotReady("摄像机设备或录像机通道清单暂时不可用，将自动重试") from None
         binary = get_ffmpeg_manager(hass).binary
+        quality = config_entry.options.get(CONF_CAMERA_STREAM_QUALITY, DEFAULT_CAMERA_STREAM_QUALITY)
+        if quality not in CAMERA_STREAM_QUALITIES:
+            quality = DEFAULT_CAMERA_STREAM_QUALITY
         for description in descriptions:
             live = OrviboLiveCamera(
                 coordinator, video_devices[description.device_id], description,
-                bootstrap, binary,
+                bootstrap, binary, stream_quality=quality,
             )
             entities.append(live)
             playback = OrviboHddCamera(
@@ -150,6 +156,7 @@ class OrviboLiveCamera(CoordinatorEntity, Camera):
         self, coordinator: OrviboSmartControlCoordinator, device: dict[str, Any],
         description: LiveCameraDescription, bootstrap: LiveCameraBootstrap,
         ffmpeg_binary: str,
+        *, stream_quality: str = DEFAULT_CAMERA_STREAM_QUALITY,
     ) -> None:
         super().__init__(coordinator)
         Camera.__init__(self)
@@ -164,6 +171,7 @@ class OrviboLiveCamera(CoordinatorEntity, Camera):
         )
         self._bridge = MeariVideoBridge(
             ffmpeg_binary, lambda: bootstrap.context(description),
+            stream_quality=stream_quality,
         )
         self._closed = False
         self._playback = None

@@ -13,6 +13,7 @@ class HddCameraTests(unittest.IsolatedAsyncioTestCase):
         self.bridges = []
         def bridge(binary, factory, **kwargs):
             self.assertEqual(kwargs.get("source_mode"), "playback")
+            self.assertEqual(kwargs.get("stream_quality", "default"), "default")
             item = types.SimpleNamespace(async_prepare=AsyncMock(), async_close=AsyncMock(),
                 async_start=AsyncMock(return_value="http://127.0.0.1/private.ts"),
                 last_stage="idle", diagnostics={}, factory=factory)
@@ -21,7 +22,8 @@ class HddCameraTests(unittest.IsolatedAsyncioTestCase):
         self.patch = patch.object(self.module, "MeariVideoBridge", side_effect=bridge)
         # Base init briefly creates an unused live bridge; allow that constructor.
         def all_bridges(binary, factory, **kwargs):
-            if not kwargs:
+            if kwargs.get("source_mode", "live") == "live":
+                self.assertEqual(kwargs.get("stream_quality"), "default")
                 return object()
             return bridge(binary, factory, **kwargs)
         self.patch = patch.object(self.module, "MeariVideoBridge", side_effect=all_bridges)
