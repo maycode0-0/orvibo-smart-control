@@ -7,28 +7,27 @@ from enum import Enum
 from typing import Callable, Iterator
 
 
+def iter_annexb_start_codes(data: bytes) -> Iterator[tuple[int, int]]:
+    """Yield start/end offsets using native byte search, including empty NALs."""
+    position = 0
+    while (marker := data.find(b"\x00\x00\x01", position)) >= 0:
+        end = marker + 3
+        # A four-byte code contains the three-byte code one byte later. Keep
+        # its leading zero, without consuming zeros before the search cursor.
+        start = marker - 1 if marker > position and data[marker - 1] == 0 else marker
+        yield start, end
+        position = end
+
+
 def iter_annexb_headers(data: bytes) -> Iterator[int]:
     """Yield the offset just past each Annex-B start code in ``data``.
 
     Handles both 3-byte (``00 00 01``) and 4-byte (``00 00 00 01``)
     start codes; shared by the H.264 and HEVC payload detectors.
     """
-    i = 0
-    n = len(data)
-    while i < n - 3:
-        if data[i] == 0 and data[i + 1] == 0:
-            if data[i + 2] == 1:
-                start = i + 3
-            elif i + 3 < n and data[i + 2] == 0 and data[i + 3] == 1:
-                start = i + 4
-            else:
-                i += 1
-                continue
-            if start < n:
-                yield start
-                i = start
-                continue
-        i += 1
+    for _start, end in iter_annexb_start_codes(data):
+        if end < len(data):
+            yield end
 
 
 class CodecName(str, Enum):

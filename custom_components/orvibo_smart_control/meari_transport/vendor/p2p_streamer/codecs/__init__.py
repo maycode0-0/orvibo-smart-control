@@ -9,6 +9,7 @@ from .base import (
     CodecRuntimePolicy,
     CodecSpec,
     GapRecoveryPolicy,
+    iter_annexb_start_codes,
 )
 from .h264 import (
     ARRIVAL_TIMED_MUX as H264_ARRIVAL_TIMED_MUX,
@@ -171,22 +172,13 @@ def codec_live_pacing_buffer(
 
 
 def annexb_units(payload: bytes) -> list[bytes]:
-    starts: list[tuple[int, int]] = []
-    i = 0
-    while i + 3 < len(payload):
-        if payload[i] == 0 and payload[i + 1] == 0:
-            if payload[i + 2] == 1:
-                starts.append((i, 3))
-                i += 3
-                continue
-            if i + 3 < len(payload) and payload[i + 2] == 0 and payload[i + 3] == 1:
-                starts.append((i, 4))
-                i += 4
-                continue
-        i += 1
+    # Preserve the existing splitter boundary: a final empty four-byte code
+    # is a unit; a final empty three-byte code remains in the preceding unit.
+    starts = [start for start, _end in iter_annexb_start_codes(payload)
+              if start + 3 < len(payload)]
     return [
-        payload[start : starts[idx + 1][0] if idx + 1 < len(starts) else len(payload)]
-        for idx, (start, _sc_len) in enumerate(starts)
+        payload[start : starts[idx + 1] if idx + 1 < len(starts) else len(payload)]
+        for idx, start in enumerate(starts)
     ]
 
 

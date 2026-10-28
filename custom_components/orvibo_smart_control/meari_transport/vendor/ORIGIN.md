@@ -17,6 +17,10 @@ channel. Root discovery uses only session-derived domain hints, never a list of
 all geographic profiles. The parent kills and waits for this disposable process
 at its hard deadline, including if an operating-system DNS call blocks.
 
+Local frame scanning uses native byte searches for Annex-B and vendor markers
+instead of repeated Python byte loops. Differential tests preserve the original
+three/four-byte boundaries, terminal empty NAL handling and emitted media bytes.
+
 The worker uses the actual external-session partnerId/userID and explicitly
 identifies the emulated Android version. The public reference's SDK discovery
 version 15259 still needs real-device validation for this APK. For iotType=3,

@@ -169,17 +169,18 @@ def decrypt_stream_frame(data: bytearray) -> bytearray:
 
 
 def _find_stream_start(data: bytes, start: int = 0) -> int:
-    i = max(0, start)
-    while i + 3 < len(data):
-        if data[i] == 0 and data[i + 1] == 0 and data[i + 2] == 1:
-            if data[i + 3] in (
-                STREAM_TYPE_IFRAME,
-                STREAM_TYPE_PFRAME,
-                STREAM_TYPE_AUDIO,
-                STREAM_TYPE_INFO,
-            ):
-                return i
-        i += 1
+    position = max(0, start)
+    while (marker := data.find(b"\x00\x00\x01", position)) >= 0:
+        if marker + 3 >= len(data):
+            return -1
+        if data[marker + 3] in (
+            STREAM_TYPE_IFRAME,
+            STREAM_TYPE_PFRAME,
+            STREAM_TYPE_AUDIO,
+            STREAM_TYPE_INFO,
+        ):
+            return marker
+        position = marker + 3
     return -1
 
 
