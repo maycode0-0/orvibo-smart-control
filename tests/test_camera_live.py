@@ -51,6 +51,7 @@ def load_camera_module():
         ("homeassistant.config_entries", {"ConfigEntry": object}),
         ("homeassistant.core", {"HomeAssistant": object}),
         ("homeassistant.helpers.entity_platform", {"AddEntitiesCallback": object}),
+        ("homeassistant.helpers.event", {"async_track_time_interval": MagicMock(return_value=MagicMock())}),
         ("homeassistant.helpers.update_coordinator", {"CoordinatorEntity": CoordinatorEntity}),
         (f"{package_name}.coordinator", {"OrviboSmartControlCoordinator": object}),
     ):
@@ -74,8 +75,157 @@ class CameraLiveTests(unittest.IsolatedAsyncioTestCase):
             "lock": {"device_id": "lock", "device_type_raw": 522},
         }, register_lock_camera=MagicMock())
         hass = types.SimpleNamespace(data={"orvibo_smart_control": {"entry": coordinator}})
-        entry = types.SimpleNamespace(entry_id="entry", options=options or {})
+        removers = []
+        entry = types.SimpleNamespace(entry_id="entry", options=options or {},
+            async_on_unload=removers.append, removers=removers)
         return coordinator, hass, entry
+
+    async def discovery_platform(self, initial):
+        coordinator, hass, entry = self.platform({"selected_device_ids": ["nvr"]})
+        bootstrap = types.SimpleNamespace(discover=AsyncMock(return_value=initial))
+        entities = []
+        cancel_timer = MagicMock()
+        with patch.object(self.module, "LiveCameraBootstrap", return_value=bootstrap), \
+                patch.object(self.module, "async_track_time_interval", return_value=cancel_timer, create=True) as timer:
+            await self.module.async_setup_entry(hass, entry, entities.extend)
+        timer.assert_called_once()
+        self.assertEqual(timer.call_args.args[2].total_seconds(), 60)
+        return coordinator, entry, entities, bootstrap, timer.call_args.args[1], cancel_timer
+
+    def descriptions(self, *channels):
+        return [self.module.LiveCameraDescription("nvr", "vendor-nvr", c, True) for c in channels]
+
+    async def test_recovered_channel_is_added_once_without_starting_video(self):
+        _, entry, entities, bootstrap, refresh, _ = await self.discovery_platform(self.descriptions(1))
+        original = entities[:]
+        bootstrap.discover.return_value = self.descriptions(1, 3, 3)
+        await refresh(None)
+        await refresh(None)
+        self.assertEqual([e._description.channel_id for e in entities], [1, 1, 3, 3])
+        self.assertEqual(entities[:2], original)
+        self.assertEqual(len({e._attr_unique_id for e in entities}), 4)
+        self.assertIs(entities[2]._playback, entities[3])
+        self.assertTrue(all(e._bridge.diagnostics["connection_attempts"] == 0 for e in entities))
+        for remove in entry.removers:
+            remove()
+
+    async def test_empty_or_failed_discovery_keeps_entities_and_retries_privately(self):
+        _, entry, entities, bootstrap, refresh, _ = await self.discovery_platform(self.descriptions(1))
+        original = entities[:]
+        bootstrap.discover.return_value = []
+        await refresh(None)
+        self.assertEqual(entities, original)
+        for error in (ValueError, OSError, TimeoutError):
+            bootstrap.discover.side_effect = error("PRIVATE_TOKEN")
+            with self.assertLogs(self.module._LOGGER, level="DEBUG") as logs:
+                await refresh(None)
+            self.assertNotIn("PRIVATE_TOKEN", repr(logs.output))
+            self.assertEqual(entities, original)
+        bootstrap.discover.side_effect = None
+        bootstrap.discover.return_value = self.descriptions(1, 3)
+        await refresh(None)
+        self.assertEqual(len(entities), 4)
+        for remove in entry.removers:
+            remove()
+
+    async def test_initially_empty_channel_list_can_recover(self):
+        _, entry, entities, bootstrap, refresh, _ = await self.discovery_platform([])
+        self.assertEqual(entities, [])
+        bootstrap.discover.return_value = self.descriptions(3)
+        await refresh(None)
+        self.assertEqual([e._description.channel_id for e in entities], [3, 3])
+        for remove in entry.removers:
+            remove()
+
+    async def test_overlapping_discovery_ticks_do_not_queue_or_duplicate(self):
+        _, entry, entities, bootstrap, refresh, _ = await self.discovery_platform(self.descriptions(1))
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def discover(_devices):
+            started.set()
+            await release.wait()
+            return self.descriptions(1, 3)
+
+        bootstrap.discover.side_effect = discover
+        task = asyncio.create_task(refresh(None))
+        await started.wait()
+        await refresh(None)
+        self.assertEqual(bootstrap.discover.await_count, 2)
+        release.set()
+        await task
+        self.assertEqual(len(entities), 4)
+        for remove in entry.removers:
+            remove()
+
+    async def test_unload_cancels_discovery_and_prevents_late_entity_addition(self):
+        for suppress_cancel in (False, True):
+            with self.subTest(suppress_cancel=suppress_cancel):
+                _, entry, entities, bootstrap, refresh, cancel_timer = await self.discovery_platform(self.descriptions(1))
+                started = asyncio.Event()
+
+                async def discover(_devices):
+                    started.set()
+                    try:
+                        await asyncio.Event().wait()
+                    except asyncio.CancelledError:
+                        if not suppress_cancel:
+                            raise
+                    return self.descriptions(1, 3)
+
+                bootstrap.discover.side_effect = discover
+                task = asyncio.create_task(refresh(None))
+                await started.wait()
+                for remove in entry.removers:
+                    remove()
+                await asyncio.gather(task, return_exceptions=True)
+                self.assertEqual(task.cancelled(), not suppress_cancel)
+                cancel_timer.assert_called_once()
+                await refresh(None)
+                self.assertEqual(bootstrap.discover.await_count, 2)
+                self.assertEqual(len(entities), 2)
+
+    async def test_refresh_respects_current_selection_before_and_after_cloud_request(self):
+        _, entry, entities, bootstrap, refresh, _ = await self.discovery_platform(self.descriptions(1))
+        entry.options["selected_device_ids"] = ["other"]
+        await refresh(None)
+        self.assertEqual(bootstrap.discover.await_count, 1)
+        entry.options["selected_device_ids"] = ["nvr"]
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def discover(devices):
+            self.assertEqual(list(devices), ["nvr"])
+            started.set()
+            await release.wait()
+            return self.descriptions(1, 3)
+
+        bootstrap.discover.side_effect = discover
+        task = asyncio.create_task(refresh(None))
+        await started.wait()
+        entry.options["selected_device_ids"] = ["other"]
+        release.set()
+        await task
+        self.assertEqual(len(entities), 2)
+        for remove in entry.removers:
+            remove()
+
+    async def test_changed_vendor_identity_does_not_duplicate_existing_unique_ids(self):
+        coordinator, entry, entities, bootstrap, refresh, _ = await self.discovery_platform(self.descriptions(1))
+        coordinator.devices["nvr"]["uid"] = "replacement-vendor"
+        # A request started with the old UID cannot register a new channel later.
+        bootstrap.discover.return_value = self.descriptions(1, 3)
+        await refresh(None)
+        self.assertEqual(len(entities), 2)
+        bootstrap.discover.return_value = [
+            self.module.LiveCameraDescription("nvr", "replacement-vendor", c, True)
+            for c in (1, 3)
+        ]
+        await refresh(None)
+        self.assertEqual(len(entities), 4)
+        self.assertEqual(entities[0]._description.vendor_id, "vendor-nvr")
+        self.assertEqual(entities[2]._description.vendor_id, "replacement-vendor")
+        self.assertEqual(len({e._attr_unique_id for e in entities}), 4)
+        for remove in entry.removers:
+            remove()
 
     async def test_selected_nvr_gets_two_cameras_joined_to_existing_device(self):
         _, hass, entry = self.platform({"selected_device_ids": ["nvr"]})
@@ -149,6 +299,7 @@ class CameraLiveTests(unittest.IsolatedAsyncioTestCase):
                 await self.module.async_setup_entry(hass, entry, entities.extend)
         self.assertNotIn("SECRET", str(error.exception))
         self.assertEqual(entities, [])
+        self.assertEqual(entry.removers, [])
 
     async def test_lock_snapshot_can_restore_before_added_and_updates_state_when_loaded(self):
         coordinator, _, _ = self.platform()

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import asyncio
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +23,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
@@ -59,10 +61,15 @@ async def async_setup_entry(
             continue
         if classify_device(device) == DeviceCategory.DOOR_LOCK:
             entities.append(OrviboLockSnapshotCamera(coordinator, device))
-    video_devices = {
-        device_id: device for device_id, device in coordinator.devices.items()
-        if device_id in selected_ids and camera_stream_supported(device)
-    }
+
+    def selected_video_devices() -> dict[str, dict[str, Any]]:
+        selected = selected_device_ids(config_entry.options, coordinator.devices)
+        return {
+            device_id: device for device_id, device in coordinator.devices.items()
+            if device_id in selected and camera_stream_supported(device)
+        }
+
+    video_devices = selected_video_devices()
     if video_devices:
         bootstrap = LiveCameraBootstrap(coordinator, async_get_clientsession(hass))
         try:
@@ -74,18 +81,65 @@ async def async_setup_entry(
         quality = config_entry.options.get(CONF_CAMERA_STREAM_QUALITY, DEFAULT_CAMERA_STREAM_QUALITY)
         if quality not in CAMERA_STREAM_QUALITIES:
             quality = DEFAULT_CAMERA_STREAM_QUALITY
-        for description in descriptions:
-            live = OrviboLiveCamera(
-                coordinator, video_devices[description.device_id], description,
-                bootstrap, binary, stream_quality=quality,
-            )
-            entities.append(live)
-            playback = OrviboHddCamera(
-                coordinator, video_devices[description.device_id], description,
-                bootstrap, binary,
-            )
-            live._playback = playback
-            entities.append(playback)
+        known_channels: set[tuple[str, int]] = set()
+
+        def new_cameras(descriptions: list[LiveCameraDescription]) -> list[OrviboLiveCamera]:
+            current_devices = selected_video_devices()
+            cameras = []
+            for description in descriptions:
+                key = (description.device_id, description.channel_id)
+                device = current_devices.get(description.device_id)
+                if (
+                    key in known_channels or device is None
+                    or device.get("uid") != description.vendor_id
+                ):
+                    continue
+                live = OrviboLiveCamera(
+                    coordinator, device, description, bootstrap, binary,
+                    stream_quality=quality,
+                )
+                playback = OrviboHddCamera(
+                    coordinator, device, description, bootstrap, binary,
+                )
+                live._playback = playback
+                cameras.extend((live, playback))
+                # Deduplicate by stable entity identity, even if vendor UID changes.
+                known_channels.add(key)
+            return cameras
+
+        entities.extend(new_cameras(descriptions))
+        discovery_task: asyncio.Task | None = None
+        discovery_closed = False
+
+        async def refresh_channels(_now: Any) -> None:
+            nonlocal discovery_task
+            if discovery_closed or discovery_task is not None:
+                return
+            devices = selected_video_devices()
+            if not devices:
+                return
+            discovery_task = asyncio.current_task()
+            try:
+                descriptions = await bootstrap.discover(devices)
+                if not discovery_closed:
+                    if cameras := new_cameras(descriptions):
+                        async_add_entities(cameras)
+            except (ValueError, OSError, TimeoutError):
+                # Do not discard working entities or log cloud credentials/errors.
+                _LOGGER.debug("摄像机通道清单暂时不可用，将在下次发现时重试")
+            finally:
+                discovery_task = None
+
+        cancel_timer = async_track_time_interval(hass, refresh_channels, timedelta(seconds=60))
+
+        def stop_discovery() -> None:
+            nonlocal discovery_closed
+            discovery_closed = True
+            cancel_timer()
+            if discovery_task is not None:
+                discovery_task.cancel()
+
+        config_entry.async_on_unload(stop_discovery)
     if entities:
         async_add_entities(entities)
 
