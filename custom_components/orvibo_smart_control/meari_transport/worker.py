@@ -32,6 +32,7 @@ MAX_STREAM_FRAME_BYTES = 8 * 1024 * 1024
 MAX_STATUS_BYTES = 4096
 MAX_STREAM_SECONDS = 3600
 STREAM_IDLE_SECONDS = 30
+KCP_GAP_RECOVERY_SECONDS = 2
 TURN_REFRESH_SECONDS = 120
 MAX_STREAM_FRAMES = 1000000
 MAX_STREAM_MEDIA_BYTES = 64 * 1024 * 1024 * 1024
@@ -494,6 +495,41 @@ def stream_probe(lib: SimpleNamespace, context: dict, sig, turn, device_uuid: st
         next_retransmit = now + 0.5
         next_turn_refresh = now + TURN_REFRESH_SECONDS
         continuous_started = False
+        gap_sn = gap_since = None
+
+        def consume_payload(payload: bytes) -> str | None:
+            nonlocal reply, request_deadline, continuous_started
+            if hdd is not None:
+                if payload.startswith(b"\xff\x01"):
+                    iva = lib.parse_iva_frame(payload)
+                    if not iva or iva[0] == 0x7012:
+                        return None
+                    payload = iva[3]
+                is_media = payload.startswith(b"\x00\x00\x01")
+                if reply is not None and not is_media:
+                    body = reply.feed(payload)
+                    if body is not None:
+                        if search:
+                            observation.hdd_result = hdd.parse_search_reply(body, context["hdd"])
+                            return "hdd_search_received"
+                        observation.playback_acknowledged = True
+                        emit("hdd_playback_acknowledged")
+                        reply, request_deadline = None, None
+                    return None
+                if search or not observation.playback_acknowledged:
+                    return None
+            if observation.feed(payload):
+                return "video_keyframe_received"
+            if playback and observation.playback_end_received:
+                emit("hdd_playback_ended")
+                return "stream_complete"
+            if stream_deadline is not None and observation.last_frame_at is not None and not continuous_started:
+                continuous_started = True
+                # Discovery and first-keyframe remain under the short
+                # startup budget. Only verified media earns a session.
+                lib.budget.configure(max(0, stream_deadline - time.monotonic()))
+            return None
+
         while True:
             now = time.monotonic()
             if request_deadline is not None and now >= request_deadline:
@@ -565,37 +601,37 @@ def stream_probe(lib: SimpleNamespace, context: dict, sig, turn, device_uuid: st
                         break
                     payloads.append(queued)
                 for payload in payloads:
-                    if hdd is not None:
-                        if payload.startswith(b"\xff\x01"):
-                            iva = lib.parse_iva_frame(payload)
-                            if not iva or iva[0] == 0x7012:
-                                continue
-                            payload = iva[3]
-                        is_media = payload.startswith(b"\x00\x00\x01")
-                        if reply is not None and not is_media:
-                            body = reply.feed(payload)
-                            if body is not None:
-                                if search:
-                                    observation.hdd_result = hdd.parse_search_reply(body, context["hdd"])
-                                    return "hdd_search_received"
-                                observation.playback_acknowledged = True
-                                emit("hdd_playback_acknowledged")
-                                reply, request_deadline = None, None
-                            continue
-                        if search or not observation.playback_acknowledged:
-                            continue
-                    if observation.feed(payload):
-                        return "video_keyframe_received"
-                    if playback and observation.playback_end_received:
-                        emit("hdd_playback_ended")
-                        return "stream_complete"
-                    if stream_deadline is not None and observation.last_frame_at is not None and not continuous_started:
-                        continuous_started = True
-                        # Discovery and first-keyframe remain under the short
-                        # startup budget. Only verified media earns a session.
-                        lib.budget.configure(max(0, stream_deadline - time.monotonic()))
+                    outcome = consume_payload(payload)
+                    if outcome is not None:
+                        return outcome
                 if kcp.ack_flush_due():
                     kcp.flush_acks()
+            # Give retransmission time to fill each particular gap. A live
+            # sender can stop with its window full, so recovery and delivery
+            # must also run when no new UDP packet arrives. Recording replies
+            # and playback must never use this lossy recovery path.
+            if hdd is None:
+                now = time.monotonic()
+                if kcp.next_recv_sn >= 0 and kcp.recv_buf and kcp.next_recv_sn not in kcp.recv_buf:
+                    if gap_sn != kcp.next_recv_sn:
+                        gap_sn, gap_since = kcp.next_recv_sn, now
+                    elif now - gap_since >= KCP_GAP_RECOVERY_SECONDS:
+                        if kcp.skip_gap(max_gaps=1, require_iva_start=True):
+                            observation.sequence.require_keyframe()
+                            # Advertise the advanced UNA even if the peer has
+                            # no window left to send us another packet.
+                            kcp.send_ack_probe()
+                            gap_sn = gap_since = None
+                            _bounded_kcp(kcp, MAX_STREAM_FRAME_BYTES if stream_deadline is not None else MAX_FRAME_BYTES)
+                            for _ in range(256):
+                                queued = kcp.poll_data()
+                                if queued is None:
+                                    break
+                                outcome = consume_payload(queued)
+                                if outcome is not None:
+                                    return outcome
+                else:
+                    gap_sn = gap_since = None
             kcp.flush_acks()
     except TimeoutError:
         if request_deadline is not None:

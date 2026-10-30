@@ -199,7 +199,7 @@ class ContinuousTransportTests(unittest.TestCase):
     def setUpClass(cls):
         cls.lib = WORKER.load_protocol()
 
-    def transport(self, *, frames=3):
+    def transport(self, *, frames=3, packet_schedule=None):
         from vendor.kcp_tunnel import build_iva_data_frame
         instances, sent, clock = [], [], [0.0]
 
@@ -249,6 +249,11 @@ class ContinuousTransportTests(unittest.TestCase):
         def receive(*args, **kwargs):
             clock[0] += 1
             count[0] += 1
+            if packet_schedule is not None:
+                data = packet_schedule.get(count[0])
+                if data is None:
+                    return []
+                return [SimpleNamespace(data=data, peer=("192.0.2.2", 9101), source=("192.0.2.1", 9100), via_turn=True, stun=None)]
             if count[0] > frames:
                 return []
             payload = H264 if count[0] == 1 else b"\x00\x00\x01\x41\x9a\x80"
@@ -257,6 +262,73 @@ class ContinuousTransportTests(unittest.TestCase):
 
         fake.recv_peer_packets = receive
         return fake, clock, instances, sent
+
+    def test_persistent_kcp_loss_resumes_only_at_verified_keyframe_without_new_packets(self):
+        from vendor.kcp_tunnel import build_iva_data_frame, build_kcp_segment, KCP_CMD_PUSH, parse_kcp_segments, KCP_CMD_ACK
+        codecs = ((H264, b"\x00\x00\x01\x41\x9a\x80"),
+                  (HEVC, b"\x00\x00\x01\x02\x01\x80"))
+
+        def packet(sn, payload, *, frg=0):
+            return build_kcp_segment(KCP_CMD_PUSH, sn=sn, frg=frg, data=payload)
+
+        for keyframe, delta, after_first_frame in (
+            (keyframe, delta, started)
+            for keyframe, delta in codecs for started in (False, True)
+        ):
+            with self.subTest(codec="h264" if keyframe == H264 else "hevc", after_first_frame=after_first_frame):
+                interrupted = build_iva_data_frame(frame(delta, 2, iframe=False))
+                schedule = {
+                    1: packet(0, build_iva_data_frame(frame(keyframe if after_first_frame else delta, 1, iframe=after_first_frame))),
+                    2: packet(1, interrupted[:24], frg=2),
+                    # SN 2 is permanently lost. The sender fills its window,
+                    # then sends nothing further until cumulative UNA advances.
+                    3: (packet(3, interrupted[-8:])
+                        + packet(4, build_iva_data_frame(frame(delta, 3, iframe=False)))
+                        + packet(5, build_iva_data_frame(frame(delta, 4, iframe=True)))
+                        + packet(6, build_iva_data_frame(frame(keyframe, 5)))
+                        + packet(7, build_iva_data_frame(frame(delta, 6, iframe=False)))),
+                }
+                fake, clock, instances, sent = self.transport(packet_schedule=schedule)
+                output = []
+                raw = context()
+                raw["timeout_seconds"] = 15
+                with patch.object(WORKER.time, "monotonic", side_effect=lambda: clock[0]):
+                    stage, _ = WORKER.run_probe(raw, lambda stage: None, library=fake, frame_output=lambda data, info: output.append((clock[0], data)))
+                self.assertEqual(stage, "stream_idle_timeout")
+                self.assertEqual([data for _, data in output], ([keyframe] if after_first_frame else []) + [keyframe, delta])
+                self.assertGreaterEqual(output[-1][0], 5)
+                self.assertLess(output[-1][0], 10)
+                acknowledgements = [segment for raw_packet in sent for segment in parse_kcp_segments(raw_packet) if segment["cmd"] == KCP_CMD_ACK]
+                self.assertTrue(any(segment["una"] == 8 for segment in acknowledgements))
+                self.assertTrue(all(item.closed for item in instances))
+
+    def test_reordered_kcp_packet_is_retransmitted_without_discarding_video(self):
+        from vendor.kcp_tunnel import build_iva_data_frame, build_kcp_segment, KCP_CMD_PUSH
+        delta = b"\x00\x00\x01\x41\x9a\x80"
+
+        def packet(sn, payload, *, iframe=False):
+            return build_kcp_segment(KCP_CMD_PUSH, sn=sn, data=build_iva_data_frame(frame(payload, sn + 1, iframe=iframe)))
+
+        fake, clock, _, _ = self.transport(packet_schedule={1: packet(0, H264, iframe=True), 2: packet(2, delta), 3: packet(1, delta)})
+        output = []
+        with patch.object(WORKER.time, "monotonic", side_effect=lambda: clock[0]):
+            stage, _ = WORKER.run_probe(context(), lambda stage: None, library=fake, frame_output=lambda data, info: output.append(data))
+        self.assertEqual(stage, "stream_idle_timeout")
+        self.assertEqual(output, [H264, delta, delta])
+
+    def test_recording_connections_never_skip_kcp_gaps(self):
+        from vendor.kcp_tunnel import build_iva_data_frame, build_kcp_segment, KCP_CMD_PUSH
+        schedule = {
+            1: build_kcp_segment(KCP_CMD_PUSH, sn=0, data=build_iva_data_frame(frame(H264))),
+            2: build_kcp_segment(KCP_CMD_PUSH, sn=2, data=build_iva_data_frame(frame(H264, 2))),
+        }
+        for operation, date in (("month", "202610"), ("day", "20261030"), ("playback", "20261030090000")):
+            with self.subTest(operation=operation):
+                fake, clock, _, _ = self.transport(packet_schedule=schedule)
+                raw = {**context(), "hdd": {"operation": operation, "date": date}}
+                with patch.object(WORKER.time, "monotonic", side_effect=lambda: clock[0]), patch.object(fake.KcpTunnel, "skip_gap", side_effect=AssertionError("recording data must remain lossless")) as skip:
+                    WORKER.run_probe(raw, lambda stage: None, library=fake, frame_output=lambda data, info: self.fail("unacknowledged recording"))
+                skip.assert_not_called()
 
     def test_continuous_transport_keeps_receiving_after_first_frame_then_stops_idle(self):
         fake, clock, instances, sent = self.transport(frames=3)
