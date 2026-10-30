@@ -1136,38 +1136,56 @@ for (const card of [
   }
 }
 
-// Lovelace starts loading custom resources and rendering the dashboard in
-// parallel. If this module wins that race, the dashboard can already contain
-// a temporary "Custom element doesn't exist" card. Ask Lovelace to rebuild
-// once the module has registered its elements. The lookup crosses HA's shadow
-// roots so the event reaches the panel even when the card is deeply nested.
+// Resources and dashboard rendering can finish in either order. Recover only
+// our registered elements' temporary missing-element errors, including errors
+// rendered after registration. Share a bounded check across both modules.
 const notifyLovelaceCardReady = () => {
-  if (typeof window === "undefined" || typeof document === "undefined") return;
-  const findRoot = (node, seen = new Set()) => {
-    if (!node || seen.has(node)) return null;
-    seen.add(node);
-    if (typeof node.querySelector === "function") {
-      const root = node.querySelector("hui-root");
-      if (root) return root;
-    }
-    if (typeof node.querySelectorAll !== "function") return null;
-    for (const element of node.querySelectorAll("*")) {
+  if (typeof window === "undefined" || typeof document === "undefined" ||
+      typeof document.querySelectorAll !== "function") return;
+  let state = window.__orviboSmartControlCardReady;
+  if (!state?.seen) {
+    if (state?.timer != null) clearTimeout(state.timer);
+    state = window.__orviboSmartControlCardReady = {
+      timer: null, seen: new WeakSet(), refreshes: 0,
+    };
+  }
+  state.deadline = Date.now() + 30000;
+  if (state.timer !== null || state.refreshes >= 3) return;
+  const findRoot = (node) => {
+    const root = node.querySelector?.("hui-root");
+    if (root) return root;
+    for (const element of node.querySelectorAll?.("*") || []) {
       if (element.shadowRoot) {
-        const root = findRoot(element.shadowRoot, seen);
-        if (root) return root;
+        const found = findRoot(element.shadowRoot);
+        if (found) return found;
       }
     }
     return null;
   };
-  const state = window.__orviboSmartControlCardReady ||
-    (window.__orviboSmartControlCardReady = { timer: null });
-  if (state.timer !== null) return;
-  state.timer = setTimeout(() => {
+  const missingElements = (node, errors = []) => {
+    for (const element of [node, ...(node.querySelectorAll?.("*") || [])]) {
+      if (element.localName === "hui-error-card" && !state.seen.has(element)) {
+        const message = `${element.textContent || ""} ${element.shadowRoot?.textContent || ""}`;
+        const match = message.match(/Custom element (?:doesn't exist|not found):\s*(orvibo-smart-control-(?:door-lock|temp-password|nvr)-card)(?=[.\s]|$)/);
+        if (match && customElements.get(match[1])) errors.push(element);
+      }
+      if (element.shadowRoot) missingElements(element.shadowRoot, errors);
+    }
+    return errors;
+  };
+  const check = () => {
     state.timer = null;
     const root = findRoot(document);
-    if (root && typeof root.dispatchEvent === "function") {
+    const errors = root ? missingElements(root) : [];
+    if (errors.length && typeof root.dispatchEvent === "function") {
+      errors.forEach((element) => state.seen.add(element));
+      state.refreshes += 1;
       root.dispatchEvent(new Event("config-refresh", { bubbles: true, composed: true }));
     }
-  }, 0);
+    if (Date.now() < state.deadline && state.refreshes < 3) {
+      state.timer = setTimeout(check, 500);
+    }
+  };
+  state.timer = setTimeout(check, 0);
 };
 notifyLovelaceCardReady();
