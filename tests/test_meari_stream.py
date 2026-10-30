@@ -102,12 +102,6 @@ class StreamBridgeTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(response.headers["Content-Type"], "video/mp2t")
                 self.assertEqual(response.headers["Cache-Control"], "no-store")
                 self.assertEqual(await response.content.readexactly(25), b"MPEGTS:ANNEXB-FIRST-FRAME")
-                # The source is consumed once by HA Stream, even with many HA viewers.
-                duplicate = await client.get(url)
-                self.assertEqual(duplicate.status, 503)
-                self.assertEqual(bridge.diagnostics["last_http_error_reason"], "source_busy")
-                self.assertEqual(bridge.diagnostics["http_503_count"], 1)
-                await duplicate.release()
                 self.assertEqual(self.calls, 1)
                 response.close()
                 await self.wait_stopped(bridge)
@@ -130,6 +124,229 @@ class StreamBridgeTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(response.status, status)
         self.assertEqual(self.calls, 0)
         self.assertFalse(self.processes)
+
+    async def test_webrtc_and_hls_read_same_live_source_without_503_or_extra_processes(self):
+        bridge, url = await self.bridge()
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg):
+            async with ClientSession() as client:
+                webrtc, hls = await asyncio.gather(client.get(url), client.get(url))
+                try:
+                    self.assertEqual((webrtc.status, hls.status), (200, 200))
+                    for response in (webrtc, hls):
+                        self.assertEqual(await response.content.readexactly(25), b"MPEGTS:ANNEXB-FIRST-FRAME")
+                    self.assertEqual(self.calls, 1)
+                    self.assertEqual(len(self.processes), 2)
+                    self.assertEqual(bridge.diagnostics["http_503_count"], 0)
+                finally:
+                    webrtc.close()
+                    hls.close()
+                await self.wait_stopped(bridge)
+
+    async def test_late_live_reader_survives_first_reader_disconnect(self):
+        bridge, url = await self.bridge()
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg):
+            async with ClientSession() as client:
+                first = await client.get(url)
+                await first.content.readexactly(25)
+                second = await client.get(url)
+                try:
+                    self.assertEqual(second.status, 200)
+                    first.close()
+                    await asyncio.sleep(0.3)
+                    self.assertFalse(second.content.at_eof())
+                    self.assertIn(b"ANNEXB-NEXT-FRAME", await second.content.readexactly(100))
+                    self.assertEqual(self.calls, 1)
+                    self.assertTrue(all(process.returncode is None for process in self.processes))
+                finally:
+                    first.close()
+                    second.close()
+                await self.wait_stopped(bridge)
+
+    async def test_cancelling_one_live_open_during_warmup_keeps_other_reader(self):
+        started, proceed = asyncio.Event(), asyncio.Event()
+
+        async def factory():
+            self.calls += 1
+            started.set()
+            await proceed.wait()
+            return {"secret": "CLOUD-SECRET"}
+
+        bridge, url = await self.bridge(factory)
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg):
+            async with ClientSession() as client:
+                first = asyncio.create_task(client.get(url))
+                second = asyncio.create_task(client.get(url))
+                await started.wait()
+                for _ in range(200):
+                    if bridge.diagnostics["active_readers"] == 2:
+                        break
+                    await asyncio.sleep(0.01)
+                self.assertEqual(bridge.diagnostics["active_readers"], 2)
+                first.cancel()
+                await asyncio.gather(first, return_exceptions=True)
+                await asyncio.sleep(0.3)
+                proceed.set()
+                response = await asyncio.wait_for(second, 3)
+                self.assertEqual(response.status, 200)
+                self.assertEqual(self.calls, 1)
+                self.assertEqual(len(self.processes), 2)
+                response.close()
+                await self.wait_stopped(bridge)
+
+    async def test_reader_limit_bounds_queues_without_disrupting_existing_readers(self):
+        bridge, url = await self.bridge()
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg), patch.object(self.module, "MAX_LIVE_READERS", 2):
+            async with ClientSession() as client:
+                first, second = await asyncio.gather(client.get(url), client.get(url))
+                try:
+                    async with client.get(url) as excess:
+                        self.assertEqual(excess.status, 503)
+                    self.assertEqual(bridge.diagnostics["last_http_error_reason"], "reader_limit")
+                    self.assertEqual(bridge.diagnostics["active_readers"], 2)
+                    self.assertEqual(self.calls, 1)
+                    self.assertEqual(len(self.processes), 2)
+                    for response in (first, second):
+                        self.assertEqual(await response.content.readexactly(25), b"MPEGTS:ANNEXB-FIRST-FRAME")
+                finally:
+                    first.close()
+                    second.close()
+                await self.wait_stopped(bridge)
+
+    async def test_slow_live_reader_is_dropped_without_stalling_other_reader(self):
+        bridge, url = await self.bridge()
+        send = bridge._send_live
+        release = asyncio.Event()
+
+        async def delayed_send(reader, session):
+            if reader.request.headers.get("X-Test-Reader") == "slow":
+                await release.wait()
+            return await send(reader, session)
+
+        bridge._send_live = delayed_send
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg), patch.object(self.module, "LIVE_QUEUE_CHUNKS", 2):
+            async with ClientSession() as client:
+                fast = await client.get(url)
+                slow = asyncio.create_task(client.get(url, headers={"X-Test-Reader": "slow"}))
+                try:
+                    for _ in range(200):
+                        if bridge.diagnostics["slow_reader_count"]:
+                            break
+                        await asyncio.sleep(0.01)
+                    self.assertEqual(bridge.diagnostics["slow_reader_count"], 1)
+                    self.assertTrue(all(reader.queue.qsize() <= 2 for reader in bridge._live_readers.values()))
+                    release.set()
+                    response = await asyncio.wait_for(slow, 3)
+                    self.assertEqual(response.status, 503)
+                    response.close()
+                    self.assertIn(b"ANNEXB-NEXT-FRAME", await fast.content.readexactly(200))
+                    self.assertEqual(bridge.diagnostics["failure_count"], 0)
+                    self.assertEqual(self.calls, 1)
+                finally:
+                    release.set()
+                    slow.cancel()
+                    await asyncio.gather(slow, return_exceptions=True)
+                    fast.close()
+                await self.wait_stopped(bridge)
+
+    async def test_unload_closes_all_live_readers_and_reaps_one_producer(self):
+        bridge, url = await self.bridge()
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg):
+            async with ClientSession() as client:
+                first, second = await asyncio.gather(client.get(url), client.get(url))
+                await bridge.async_close()
+                for response in (first, second):
+                    await asyncio.wait_for(response.read(), 2)
+                    response.close()
+        self.assertEqual(bridge.diagnostics["active_readers"], 0)
+        self.assertEqual(len(self.processes), 2)
+        await self.wait_stopped(bridge)
+
+    async def test_slow_socket_write_times_out_without_restarting_shared_source(self):
+        bridge, url = await self.bridge()
+        response_class = self.module.web.StreamResponse
+
+        class SlowResponse(response_class):
+            async def prepare(self, request):
+                self.slow = request.headers.get("X-Test-Reader") == "slow"
+                return await super().prepare(request)
+
+            async def write(self, payload):
+                if self.slow:
+                    await asyncio.sleep(60)
+                return await super().write(payload)
+
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg), patch.object(self.module, "WRITE_TIMEOUT", 0.15), patch.object(self.module.web, "StreamResponse", SlowResponse):
+            async with ClientSession() as client:
+                fast, slow = await asyncio.gather(client.get(url), client.get(url, headers={"X-Test-Reader": "slow"}))
+                try:
+                    self.assertEqual((fast.status, slow.status), (200, 200))
+                    self.assertEqual(await asyncio.wait_for(slow.read(), 2), b"")
+                    self.assertIn(b"ANNEXB-NEXT-FRAME", await fast.content.readexactly(200))
+                    self.assertEqual(bridge.diagnostics["slow_reader_count"], 1)
+                    self.assertEqual(bridge.diagnostics["failure_count"], 0)
+                    self.assertEqual(self.calls, 1)
+                finally:
+                    fast.close()
+                    slow.close()
+                await self.wait_stopped(bridge)
+
+    async def test_shared_source_failure_ends_both_readers_and_warms_one_replacement(self):
+        self.worker.write_text(WORKER_PREAMBLE + f'''
+emit(b'J',json.dumps({EVENT!r}).encode())
+emit(b'V',b'first-frame')
+time.sleep(0.1)
+emit(b'J',json.dumps({{'probe_stage':'probe_failed','final':True}}).encode())
+time.sleep(60)
+''', encoding="utf-8")
+
+        async def factory():
+            self.calls += 1
+            if self.calls == 2:
+                self.worker.write_text(WORKER_VIDEO, encoding="utf-8")
+            return {"secret": "CLOUD-SECRET"}
+
+        bridge, url = await self.bridge(factory)
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg), patch.object(self.module, "RECOVERY_BACKOFF", 0.01):
+            async with ClientSession() as client:
+                first, second = await asyncio.gather(client.get(url), client.get(url))
+                self.assertEqual((first.status, second.status), (200, 200))
+                await asyncio.wait_for(asyncio.gather(first.read(), second.read()), 3)
+                first.close()
+                second.close()
+                for _ in range(200):
+                    if bridge._prepared is not None:
+                        break
+                    await asyncio.sleep(0.01)
+                self.assertIsNotNone(bridge._prepared)
+                first, second = await asyncio.gather(client.get(url), client.get(url))
+                try:
+                    self.assertEqual((first.status, second.status), (200, 200))
+                    self.assertEqual(self.calls, 2)
+                    self.assertEqual(len(self.processes), 4)
+                    self.assertEqual(bridge.diagnostics["failure_count"], 1)
+                    self.assertEqual(bridge.diagnostics["http_503_count"], 0)
+                finally:
+                    first.close()
+                    second.close()
+                await self.wait_stopped(bridge)
+
+    async def test_playback_still_rejects_duplicate_reader(self):
+        bridge = self.module.MeariVideoBridge(
+            "trusted-ffmpeg", self.factory, source_mode="playback", _worker_path=self.worker,
+        )
+        self.bridges.append(bridge)
+        url = await bridge.async_start()
+        with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn), patch.object(self.module, "_ffmpeg_args", side_effect=self.ffmpeg):
+            async with ClientSession() as client:
+                first = await client.get(url)
+                try:
+                    async with client.get(url) as second:
+                        self.assertEqual(second.status, 503)
+                    self.assertEqual(bridge.diagnostics["last_http_error_reason"], "source_busy")
+                    self.assertEqual(self.calls, 1)
+                finally:
+                    first.close()
+                await self.wait_stopped(bridge)
 
     async def test_fluent_quality_reaches_private_worker_without_mutating_factory_context(self):
         event = {**EVENT, "requested_stream_id": 100}
@@ -778,33 +995,47 @@ emit(b'J',json.dumps({{'probe_stage':'stream_complete','final':True}}).encode())
 ''', encoding="utf-8")
 
         async def factory():
+            self.calls += 1
             return {"fixture": str(fixture)}
 
         bridge = self.module.MeariVideoBridge(binary, factory, _worker_path=self.worker)
         self.bridges.append(bridge)
         url = await bridge.async_start()
 
-        def read_live():
+        def read_live(count):
             with av.open(url, timeout=5) as container:
                 self.assertEqual(container.streams.video[0].codec_context.name, "h264")
                 frames = []
                 for frame in container.decode(video=0):
                     frames.append((frame.width, frame.height, frame.pts))
-                    if len(frames) == 5:
+                    if len(frames) == count:
                         break
                 return frames
 
         with patch.object(self.module.asyncio, "create_subprocess_exec", side_effect=self.spawn):
             start = time.monotonic()
             await bridge.async_prepare()
-            frames = await asyncio.wait_for(asyncio.to_thread(read_live), 10)
+            first_reader = asyncio.create_task(asyncio.to_thread(read_live, 15))
+            for _ in range(200):
+                if bridge.diagnostics["active_readers"]:
+                    break
+                await asyncio.sleep(0.01)
+            # Join an already-running MPEG-TS stream, after its initial headers.
+            await asyncio.sleep(0.7)
+            first_frames, frames = await asyncio.wait_for(
+                asyncio.gather(first_reader, asyncio.to_thread(read_live, 5)), 10,
+            )
             elapsed = time.monotonic() - start
+            self.assertEqual(len(first_frames), 15)
             self.assertEqual(len(frames), 5)
             self.assertTrue(all(frame[:2] == (640, 360) for frame in frames))
             self.assertEqual(len({frame[2] for frame in frames}), 5)
             # Five frames must be readable while the paced eight-second source
             # is still live, rather than only after a whole-file EOF flush.
             self.assertLess(elapsed, 7)
+            self.assertEqual(self.calls, 1)
+            self.assertEqual(len(self.processes), 2)
+            self.assertEqual(bridge.diagnostics["http_503_count"], 0)
             await self.wait_stopped(bridge)
 
 

@@ -2,7 +2,8 @@
 
 Only a random path on a loopback socket is exposed. Cloud credentials enter a
 disposable worker through stdin; encoded video and FFmpeg output stay in pipes.
-Each request owns its children and bounds time, record sizes and backpressure.
+Live readers share one producer with bounded, independent output queues.
+Playback requests own their children and retain single-selection semantics.
 """
 from __future__ import annotations
 
@@ -32,6 +33,8 @@ PREPARED_TIMEOUT = 20.0
 RECOVERY_TIMEOUT = 120.0
 RECOVERY_BACKOFF = 1.0
 RECOVERY_ATTEMPTS = 3
+MAX_LIVE_READERS = 4
+LIVE_QUEUE_CHUNKS = 16  # At most 1 MiB per reader; chunks are <= 65536 bytes.
 WORKER_STAGES = frozenset({
     "worker_started", "root_discovery", "signaling_connect", "signaling_registered",
     "device_status", "turn_allocate", "sdp_offer", "ice_connect", "kcp_connect",
@@ -127,6 +130,13 @@ class _Prepared:
     first: bytes
 
 
+@dataclass
+class _LiveReader:
+    request: web.Request
+    queue: asyncio.Queue[bytes | None]
+    dropped: bool = False
+
+
 async def _record(reader: asyncio.StreamReader) -> tuple[bytes, bytes]:
     header = await reader.readexactly(5)
     kind, size = header[:1], int.from_bytes(header[1:], "big")
@@ -160,7 +170,7 @@ def _ffmpeg_args(binary: str, codec: str) -> tuple[str, ...]:
 
 
 class MeariVideoBridge:
-    """One source for HA Stream; Stream shares its output among HA viewers."""
+    """Share one live source between HA Stream and go2rtc readers."""
 
     def __init__(
         self, ffmpeg_binary: str,
@@ -184,6 +194,8 @@ class MeariVideoBridge:
         self._runner: web.AppRunner | None = None
         self._active: asyncio.Task | None = None
         self._active_request: web.Request | None = None
+        self._live_readers: dict[asyncio.Task, _LiveReader] = {}
+        self._slow_readers = 0
         self._closed = False
         self._start_lock = asyncio.Lock()
         self._warming: asyncio.Task | None = None
@@ -225,6 +237,8 @@ class MeariVideoBridge:
             "last_error_reason": self._last_error_reason,
             "http_503_count": self._http_503_count,
             "last_http_error_reason": self._last_http_error_reason,
+            "active_readers": len(self._live_readers),
+            "slow_reader_count": self._slow_readers,
             "recovery_in_progress": self._recovery is not None and not self._recovery.done(),
         }
 
@@ -452,6 +466,8 @@ class MeariVideoBridge:
         return web.Response(status=503, text="Video unavailable")
 
     async def _handle(self, request: web.Request) -> web.StreamResponse:
+        if self._source_mode == "live":
+            return await self._handle_live(request)
         previous = self._active
         if previous is not None and self._active_request is not None:
             transport = self._active_request.transport
@@ -504,6 +520,137 @@ class MeariVideoBridge:
             session.response.force_close()
             return session.response
         return self._unavailable("source_unavailable")
+
+    def _drop_reader(self, reader: _LiveReader) -> None:
+        """Disconnect a lagging reader instead of dropping undecodable TS bytes."""
+        if reader.dropped:
+            return
+        reader.dropped = True
+        self._slow_readers += 1
+        while not reader.queue.empty():
+            reader.queue.get_nowait()
+        reader.queue.put_nowait(None)
+
+    def _broadcast(self, payload: bytes) -> None:
+        for reader in self._live_readers.values():
+            if reader.dropped:
+                continue
+            if reader.queue.full():
+                self._drop_reader(reader)
+            else:
+                reader.queue.put_nowait(payload)
+        # Count producer bytes once, regardless of the number of consumers.
+        self._output_bytes += len(payload)
+
+    async def _handle_live(self, request: web.Request) -> web.StreamResponse:
+        previous = self._active
+        if previous is not None and all(
+            reader.request.transport is None or reader.request.transport.is_closing()
+            for reader in self._live_readers.values()
+        ):
+            await asyncio.wait((previous,), timeout=WRITE_TIMEOUT)
+        if self._closed:
+            return self._unavailable("bridge_closed")
+        if len(self._live_readers) >= MAX_LIVE_READERS:
+            return self._unavailable("reader_limit")
+        owner = asyncio.current_task()
+        reader = _LiveReader(request, asyncio.Queue(maxsize=LIVE_QUEUE_CHUNKS))
+        self._live_readers[owner] = reader
+        if self._active is None:
+            self._active = asyncio.create_task(self._serve_live())
+        session = _Session()
+        try:
+            send = session.task(self._send_live(reader, session))
+            disconnected = session.task(self._watch_disconnect(request))
+            done, _ = await asyncio.wait((send, disconnected), return_when=asyncio.FIRST_COMPLETED)
+            if send in done:
+                return await send
+        except TimeoutError:
+            self._drop_reader(reader)
+        except OSError:
+            pass  # A closed consumer is not a source failure.
+        finally:
+            self._live_readers.pop(owner, None)
+
+            async def close_reader() -> None:
+                await session.close()
+                if not self._live_readers and self._active is not None:
+                    producer = self._active
+                    producer.cancel()
+                    await asyncio.gather(producer, return_exceptions=True)
+
+            await _finish_uninterrupted(close_reader())
+        if session.response is not None:
+            session.response.force_close()
+            return session.response
+        return self._unavailable("source_unavailable")
+
+    async def _send_live(self, reader: _LiveReader, session: _Session) -> web.StreamResponse:
+        payload = await reader.queue.get()
+        if payload is None:
+            return self._unavailable("source_unavailable")
+        response = web.StreamResponse(headers={
+            "Content-Type": "video/mp2t", "Cache-Control": "no-store",
+        })
+        session.response = response
+        await response.prepare(reader.request)
+        while payload is not None:
+            async with asyncio.timeout(WRITE_TIMEOUT):
+                await response.write(payload)
+            payload = await reader.queue.get()
+        if reader.dropped:
+            response.force_close()
+        return response
+
+    async def _serve_live(self) -> None:
+        session = _Session()
+        recover = False
+        try:
+            async with asyncio.timeout(SESSION_TIMEOUT):
+                self.last_stage = "starting"
+                ready = await self._open_stream(session)
+                self.last_stage = "streaming"
+                self._broadcast(ready.first)
+
+                async def copy() -> None:
+                    while True:
+                        async with asyncio.timeout(MEDIA_TIMEOUT):
+                            payload = await ready.ffmpeg.stdout.read(65536)
+                        if not payload:
+                            return
+                        self._broadcast(payload)
+
+                output = session.task(copy())
+                done, _ = await asyncio.wait((ready.feed, output), return_when=asyncio.FIRST_COMPLETED)
+                if ready.feed in done:
+                    await ready.feed
+                    await output
+                else:
+                    await output
+                    if not ready.feed.done():
+                        raise _StreamError()
+                if ready.ffmpeg.returncode not in (None, 0):
+                    raise _StreamError()
+                self.last_stage = "source_closed"
+                recover = True
+        except asyncio.CancelledError:
+            self.last_stage = "source_closed"
+            raise
+        except Exception as error:
+            self._report(error)
+            recover = True
+        finally:
+            try:
+                await _finish_uninterrupted(session.close())
+            finally:
+                self._active = None
+                for reader in self._live_readers.values():
+                    if reader.queue.full():
+                        self._drop_reader(reader)
+                    elif not reader.dropped:
+                        reader.queue.put_nowait(None)
+                if recover and self._live_readers:
+                    self._schedule_recovery()
 
     async def _prepare(self, session: _Session) -> _Prepared:
         async with asyncio.timeout(FIRST_FRAME_TIMEOUT):
@@ -569,28 +716,28 @@ class MeariVideoBridge:
                 raise _StreamError()
             return _Prepared(session, ffmpeg, feed, first)
 
+    async def _open_stream(self, session: _Session) -> _Prepared:
+        if self._warming is not None:
+            await asyncio.shield(self._warming)
+        ready = await self._take_ready()
+        if ready is None:
+            if self._source_mode == "live":
+                # Keep bounded P2P warm-up alive across HA's short open deadline.
+                await asyncio.shield(self._ensure_warm())
+                ready = await self._take_ready()
+                if ready is None:
+                    raise _StreamError()
+            else:
+                return await self._prepare(session)
+        session.children.append(ready.session)
+        if ready.feed.done() and ready.feed.exception() is not None:
+            await ready.feed
+        return ready
+
     async def _run(self, request: web.Request, session: _Session) -> web.StreamResponse:
         async with asyncio.timeout(SESSION_TIMEOUT):
-            if self._warming is not None:
-                await asyncio.shield(self._warming)
-            ready = await self._take_ready()
-            if ready is None:
-                if self._source_mode == "live":
-                    # HA can open/retry the saved URL after preparation expires,
-                    # even before the first successful read. Keep one bounded
-                    # warm-up alive across its shorter source-open deadline.
-                    await asyncio.shield(self._ensure_warm())
-                    ready = await self._take_ready()
-                    if ready is None:
-                        raise _StreamError()
-                    session.children.append(ready.session)
-                else:
-                    ready = await self._prepare(session)
-            else:
-                session.children.append(ready.session)
+            ready = await self._open_stream(session)
             ffmpeg, feed = ready.ffmpeg, ready.feed
-            if feed.done() and feed.exception() is not None:
-                await feed
             response = web.StreamResponse(headers={
                 "Content-Type": "video/mp2t", "Cache-Control": "no-store",
             })
