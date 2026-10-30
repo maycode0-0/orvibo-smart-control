@@ -1,7 +1,7 @@
 # ORVIBO Smart Control
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![Version](https://img.shields.io/badge/version-2.0.0b5-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
+[![Version](https://img.shields.io/badge/version-2.0.0b6-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
 
 ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。它把 MixPad
 网关局域网直连与 ORVIBO 云端协议放在同一条设备、状态和控制链路中：能在 LAN
@@ -10,10 +10,11 @@ ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。�
 ## 2.0 版本
 
 `2.0.0b0` 基于 `0.2.6b17`，开启 `2.0` 版本线，包含基于 HomeMate 5.2.6.307
-逆向证据的协议重构。当前 `2.0.0b5` 增加可选的摄像机流畅画质，按设备已上报的标清能力
-请求标清码流；包含 b4 的协议解析 CPU 优化、b3 的首次连接恢复与 503 诊断，以及 b2 的开门记录。
+逆向证据的协议重构。当前 `2.0.0b6` 修复摄像机多读者冲突、恢复通道漏发现和卡片启动
+恢复时序；继承 b5 的可选流畅画质、b4 的协议解析 CPU 优化、b3 的首次连接恢复与
+503 诊断，以及 b2 的开门记录。
 开发分支仍为 `2.0`，具体变更见
-[发布说明](docs/releases/2.0.0b5.md) 与 [CHANGELOG](CHANGELOG.md)。
+[发布说明](docs/releases/2.0.0b6.md) 与 [CHANGELOG](CHANGELOG.md)。
 
 本次统一类型 `0`、`116` 和其中虚拟 MixPad 调光器的亮度编码、回读及状态单位；
 为明确标记为 RF 的 `34/35` 窗帘提供开、关、停，不提供位置滑块或猜测的关闭状态。
@@ -71,14 +72,20 @@ LAN > 云端实时推送（SSL）> 云端快照（REST）> 乐观状态 > 初始
 ### 摄像机与录像机实时画面
 
 从 `0.2.6b4` 起，为匹配成功的 Meari XTS/p2p=2 摄像机及录像机在线通道创建 `camera` 实体。
-在 HACS 更新到 `v2.0.0b5` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
+在 HACS 更新到 `v2.0.0b6` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
 “通道 3”等摄像头实体；也可把实体加入图片概览卡片并设置 `camera_view: live`。
 HAOS 使用自带 FFmpeg，无需单独安装视频服务。首次连接需要获取授权和建立设备连接，
 可能需要数十秒；首次缩略图超时后再次打开即可复用正在建立的连接。
 
 `2.0.0b5` 新增“配置 → 摄像机实时画质 → 流畅”：按设备上报的标清能力请求较低画质
 以减轻负载，没有已知标清档时继续使用默认码流。升级后需手动选择流畅档，实际 CPU
-降幅待真机验证；详见 [源画质选择](docs/meari-live-video.md#源画质选择200b5)。
+降幅未量化；用户 b5 流畅档已返回 H.264 / 640×360，详见 [源画质选择](docs/meari-live-video.md#源画质选择200b5)。
+
+`2.0.0b6` 的共享读取修复允许 HA Stream 与 go2rtc 共用同一套实时接收和
+转码进程，避免第二个读取触发 `source_busy / 503`；慢连接单独退出，不中断其他读者。
+已通过离线媒体测试，尚待用户 HA 更新后验证，见 [媒体与生命周期](docs/meari-live-video.md#媒体与生命周期)。
+同时增加每 60 秒自动补发现恢复的在线通道，修复首次加载漏发现后实体持续
+不可用的问题；只查询元数据，不自动开流，见 [通道恢复](docs/meari-live-video.md#通道恢复200b6)。
 
 已收到用户真实 1 号通道 HEVC 关键帧；本地合成 HEVC 到 H.264 转码、解码测试通过。
 用户已确认实时通道1可看，通道3等待加载后可恢复。“欧瑞博录像回放”仪表盘卡片
@@ -86,7 +93,7 @@ HAOS 使用自带 FFmpeg，无需单独安装视频服务。首次连接需要�
 S1 等匹配的 Meari XTS/p2p=2 摄像机新增“存储卡回放”实体；更新后请确认设备已在集成中勾选。
 **硬盘和存储卡查询与回放尚待真实设备验证**。当前无声音。
 添加手动卡片：`type: custom:orvibo-smart-control-nvr-card`，操作步骤见 [录像回放说明](docs/meari-hdd-playback.md)。
-在线通道列表变化后请重新加载集成。仅本地 LAN 模式无法取得必要的云授权。
+b5 及更早版本的在线通道列表变化后请重新加载集成。仅本地 LAN 模式无法取得必要的云授权。
 版本发布规则：当前以 `2.0` 为基础，默认使用 `v2.0.0bN` 临时诊断版本；只有明确要求
 “发布正式版”时才使用 `v2.0.0` 这类正式版本。两种版本都按 GitHub 普通 Release / Latest 发布，不标记为
 Pre-release，以确保 HACS 能识别更新。
@@ -199,9 +206,14 @@ MD5 摘要；配置项不保存明文，但该摘要仍可直接用于认证，�
 最新预览、缩略图和大图复用已下载图片，仍失败时显示提示，可点击刷新重试。
 `0.2.6b16` 修复页面刷新时 Lovelace 资源加载竞态：两个内置卡片注册完成后会自动重建仪表盘，
 避免偶发显示 `Custom element doesn't exist` 配置错误。
+`2.0.0b6` 进一步修正这段一次性恢复：模块注册后最多检查 30 秒，覆盖仪表盘和错误稍晚
+出现的情况，仅重建已注册 ORVIBO 组件的缺失错误；同一错误节点只处理一次，每页最多
+重建 3 次。正常页面、其他自定义卡片和实际配置错误不触发重建。用户 b5 页面 40 次
+刷新检查暂未捕获原始偶发故障；恢复缺陷已通过离线回归确认，修复尚未安装到用户 HA，
+仍需更新后的真机验证。
 `0.2.6b15` 修复集成在 Home Assistant 启动过早或已运行后加载、重载时没有再次注册
 Lovelace 卡片资源的问题，避免录像回放卡片和门锁卡片同时显示 `Custom element doesn't exist`。
-在 HACS 更新到 **v2.0.0b5**，重启 Home Assistant 后强制刷新浏览器即可。
+在 HACS 更新到 **v2.0.0b6**，重启 Home Assistant 后强制刷新浏览器即可。
 抓拍修复的历史记录见 [0.2.6b17 说明](docs/releases/0.2.6b17.md)。
 
 `0.2.6b14` 修复升级后资源地址可能回退、需要删除并重新添加 JavaScript 资源的问题：
@@ -301,8 +313,8 @@ custom_components/orvibo_smart_control/
 项目使用标准库 `unittest` 运行不依赖完整 Home Assistant 的测试，并由 CI 执行语法、
 身份、HACS 和 hassfest 校验。参与开发前请阅读 [贡献指南](CONTRIBUTING.md)。
 
-`2.0` 重构最近一次 Python 3.12 离线测试运行 812 项，810 项通过、2 项因缺少 FFmpeg
-跳过；自动化结果不代替新协议分支的真机验证。详细边界见协议重构文档。
+`2.0.0b6` 的 Python 3.12 全量离线测试 887 项通过、无跳过，包含真实 FFmpeg 转码与
+PyAV 连续解码；自动化结果不代替新协议分支和本版修复的真机验证。详细边界见发布说明。
 
 ## 文档索引
 
