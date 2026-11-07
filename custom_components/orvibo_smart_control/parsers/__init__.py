@@ -18,6 +18,7 @@ from .light import (
     parse_zigbee_dimmable_light,
 )
 from .lock import parse_door_lock
+from .media import parse_music_host
 from .sensor import (
     parse_door_window_sensor,
     parse_emergency_button,
@@ -58,6 +59,7 @@ STATE_PARSERS: dict[DeviceCategory, StateParser] = {
     DeviceCategory.VENTILATION_SYSTEM: parse_ventilation,
     DeviceCategory.CLOTHES_HORSE: parse_clothes_horse,
     DeviceCategory.DOOR_LOCK: parse_door_lock,
+    DeviceCategory.MUSIC_HOST: parse_music_host,
 }
 
 

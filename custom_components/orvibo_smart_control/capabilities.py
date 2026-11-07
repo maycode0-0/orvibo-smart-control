@@ -23,6 +23,7 @@ PLATFORM_SENSOR = "sensor"
 PLATFORM_BINARY_SENSOR = "binary_sensor"
 PLATFORM_CAMERA = "camera"
 PLATFORM_SWITCH = "switch"
+PLATFORM_MEDIA_PLAYER = "media_player"
 
 
 class ControlChannel(str, Enum):
@@ -146,6 +147,7 @@ _CATEGORY_PLATFORMS: Dict[DeviceCategory, FrozenSet[str]] = {
     DeviceCategory.CAMERA_NVR: frozenset({PLATFORM_SENSOR}),
     DeviceCategory.MIX_SWITCH: frozenset({PLATFORM_SWITCH}),
     DeviceCategory.BACH_SWITCH: frozenset({PLATFORM_SWITCH}),
+    DeviceCategory.MUSIC_HOST: frozenset({PLATFORM_MEDIA_PLAYER}),
 }
 
 

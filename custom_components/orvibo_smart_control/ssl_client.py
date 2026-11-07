@@ -368,6 +368,41 @@ class SSLClient:
         await self._send_packet(payload, self.session_key)
         return True
 
+    async def send_control_media(
+        self,
+        device_id: str,
+        device_uid: str,
+        action: str,
+        value: int | None = None,
+    ) -> bool:
+        """Send one cloud music command to a MixPad background-music host."""
+        await self.connect_and_login()
+        if not self.session_key or self.session_key == DEFAULT_KEY.encode("utf-8"):
+            _LOGGER.debug("会话密钥无效，无法下发音乐控制")
+            return False
+        payload = HomemateJsonData.ssl_control_media(
+            self.username, device_uid, action, value
+        )
+        _LOGGER.debug(
+            "下发音乐控制 device=%s action=%s value=%s",
+            device_id,
+            action,
+            value,
+        )
+        await self._send_packet(payload, self.session_key)
+        return True
+
+    async def send_media_status_query(self, device_uid: str) -> bool:
+        """Request the official app's MixPad music property set."""
+        await self.connect_and_login()
+        if not self.session_key or self.session_key == DEFAULT_KEY.encode("utf-8"):
+            return False
+        payload = HomemateJsonData.ssl_query_media_status(
+            self.username, device_uid
+        )
+        await self._send_packet(payload, self.session_key)
+        return True
+
     async def send_control_cct_light_onoff(self, device_id: str, device_uid: str, state: bool):
         """色温灯开关控制（set property 格式，适用于 statusType=503）"""
         await self.connect_and_login()
@@ -990,6 +1025,9 @@ class SSLClient:
                     await self._handle_device_status_report(data)
                 elif data.get("namespace") == "device_manage" and data.get("action") == "upLoadDeviceList":
                     await self._handle_upload_device_list(data)
+                elif cmd == CMD_CONTROL:
+                    if not self._handle_media_status_response(data):
+                        _LOGGER.debug("收到无音乐状态的 cmd=15 响应")
                 elif cmd == CMD_STATE_UPDATE:
                     await self._handle_state_update(data)
                 elif cmd == CMD_CLOTHES_HORSE_STATE:
@@ -1123,6 +1161,38 @@ class SSLClient:
         
         _LOGGER.debug(f"[SSL输出] deviceStatusReport原始数据: deviceId={dev_id}")
         self.on_status_update(dev_id, raw_status)
+
+    def _handle_media_status_response(self, data: dict) -> bool:
+        """Translate a type=13 statusList response into normal state updates."""
+        response_data = data.get("data")
+        if not isinstance(response_data, dict):
+            return False
+        status_list = response_data.get("statusList")
+        if not isinstance(status_list, list):
+            return False
+
+        uid = str(response_data.get("uid") or data.get("uid") or "")
+        handled = False
+        for item in status_list:
+            if not isinstance(item, dict):
+                continue
+            device_id = str(item.get("deviceId") or "")
+            property_name = item.get("property")
+            if not device_id or not isinstance(property_name, str):
+                continue
+            self.on_status_update(
+                device_id,
+                {
+                    "raw_data": data,
+                    "properties": {property_name: item.get("value")},
+                    "deviceId": device_id,
+                    "uid": uid,
+                    "cmd": CMD_CONTROL,
+                    "online": True,
+                },
+            )
+            handled = True
+        return handled
 
     async def _handle_state_update(self, data: dict):
         """处理 cmd=42 云端实时状态推送，只提取原始数据，不做状态解析。"""

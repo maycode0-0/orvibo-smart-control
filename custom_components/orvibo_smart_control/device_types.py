@@ -409,6 +409,12 @@ HARDWARE_VERIFIED_CATEGORIES = frozenset({
     DeviceCategory.DREAM_CURTAIN,
 })
 
+# Protocol support recovered from the official APK. Keep this separate from
+# hardware verification so diagnostics do not claim an on-device test occurred.
+PROTOCOL_SUPPORTED_CATEGORIES = frozenset({
+    DeviceCategory.MUSIC_HOST,
+})
+
 
 def is_hidden_category(category: DeviceCategory) -> bool:
     """判断该类别是否应被隐藏（不展示、不加入 HA）。"""
@@ -455,7 +461,11 @@ def get_device_profile(device: Dict[str, Any]) -> DeviceProfile:
         # Explicit static protocol evidence may enable a bounded implementation
         # without claiming that its hardware/firmware has been verified.
         registration_only=(
-            not (hardware_verified or static_control_supported)
+            not (
+                hardware_verified
+                or static_control_supported
+                or category in PROTOCOL_SUPPORTED_CATEGORIES
+            )
             or category == DeviceCategory.LIGHT_VIRTUAL_GROUP
         ),
     )

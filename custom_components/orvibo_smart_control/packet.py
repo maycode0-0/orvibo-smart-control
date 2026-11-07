@@ -190,6 +190,76 @@ class HomemateJsonData:
         return payload
 
     @classmethod
+    def ssl_control_media(
+        cls,
+        username: str,
+        device_uid: str,
+        action: str,
+        value: int | None = None,
+    ):
+        """Build the MixPad music command recovered from ZhiJia365 5.2.6.307."""
+        action_values = {
+            "pause": 0,
+            "play": 1,
+            "volume": 2,
+            "mute": 3,
+            "play_mode": 5,
+            "previous": 6,
+            "next": 7,
+            "seek": 11,
+        }
+        if action not in action_values:
+            raise ValueError(f"unsupported media action: {action}")
+
+        data = {
+            "type": 2,
+            "order": "song control",
+            "delayTime": 0,
+            "value1": action_values[action],
+        }
+        if action == "play":
+            data["value2"] = 2
+        elif action in {"volume", "play_mode", "seek"}:
+            if value is None:
+                raise ValueError(f"media action {action} requires a value")
+            data["value2"] = int(value)
+
+        return {
+            "uid": device_uid,
+            "userName": username,
+            "data": data,
+            "cmd": CMD_CONTROL,
+            "serial": generate_serial(),
+            "clientType": 1,
+            "uniSerial": generate_serial(use_time=True),
+            "serverRecord": False,
+            "ver": SOFTWARE_VER,
+            "debugInfo": DEBUG_INFO,
+        }
+
+    @classmethod
+    def ssl_query_media_status(cls, username: str, device_uid: str):
+        """Query the property list used by the official MixPad music screen."""
+        return {
+            "uid": device_uid,
+            "userName": username,
+            "data": {
+                "type": 13,
+                "property": (
+                    "music_current_song,music_play_status,music_play_mode,"
+                    "volume,mute"
+                ),
+            },
+            "cmd": CMD_CONTROL,
+            "serial": generate_serial(),
+            "clientType": 1,
+            "uniSerial": generate_serial(use_time=True),
+            "serverRecord": False,
+            "ver": SOFTWARE_VER,
+            "debugInfo": DEBUG_INFO,
+        }
+
+    @classmethod
     def ssl_control_ac(
         cls,
         username: str,

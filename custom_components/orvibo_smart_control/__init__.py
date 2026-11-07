@@ -49,7 +49,17 @@ from .frontend_resources import async_register_card_resources
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS = ("switch", "light", "cover", "sensor", "binary_sensor", "climate", "fan", "camera")
+PLATFORMS = (
+    "switch",
+    "light",
+    "cover",
+    "sensor",
+    "binary_sensor",
+    "climate",
+    "fan",
+    "camera",
+    "media_player",
+)
 
 # 本集成仅通过配置项使用，不读取 configuration.yaml。
 # 新版 HA 要求 empty_config_schema 传入 domain 参数。

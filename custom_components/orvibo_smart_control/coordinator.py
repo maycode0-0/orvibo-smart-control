@@ -533,6 +533,7 @@ class OrviboSmartControlCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
                     )
                 if ssl_ok:
                     await self._query_clothes_horse_initial_status()
+                    await self._query_media_initial_status()
                     # 后台预热门锁 COS 媒体凭证，事件到达时可直接签名出 URL
                     self.hass.async_create_task(self._prewarm_cos_credentials())
                 else:
@@ -795,6 +796,23 @@ class OrviboSmartControlCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
             except Exception as e:
                 _LOGGER.warning(f"[晾衣架初始查询] {device_id} 失败: {e}")
 
+    async def _query_media_initial_status(self) -> None:
+        """Query each distinct cloud music host after SSL login."""
+        if not self.ssl_client:
+            return
+        queried_uids: set[str] = set()
+        for device in self.devices.values():
+            if classify_device(device) != DeviceCategory.MUSIC_HOST:
+                continue
+            uid = str(device.get("uid") or "")
+            if not uid or uid in queried_uids:
+                continue
+            queried_uids.add(uid)
+            try:
+                await self.ssl_client.send_media_status_query(uid)
+            except Exception as e:
+                _LOGGER.warning("[音乐初始查询] uid=%s 失败: %s", uid, e)
+
     async def _wait_for_control_response(self, device_id: str) -> dict | None:
         """发送控制后等待设备返回状态，3秒超时兜底。"""
         return await self.control.wait_for_response(device_id)
@@ -1051,6 +1069,54 @@ class OrviboSmartControlCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         return await self.control.set_ventilation_preset_mode(
             device_id, preset_mode
         )
+
+    # ------------------------------------------------------------------
+    # MixPad background music (cloud cmd=15, type=2 song control)
+    # ------------------------------------------------------------------
+    async def async_media_control(
+        self,
+        device_id: str,
+        action: str,
+        value: int | None = None,
+    ) -> bool:
+        device = self.devices.get(device_id)
+        if (
+            not device
+            or classify_device(device) != DeviceCategory.MUSIC_HOST
+            or self.ssl_client is None
+        ):
+            return False
+        try:
+            ok = await self.ssl_client.send_control_media(
+                device_id,
+                str(device.get("uid") or ""),
+                action,
+                value,
+            )
+        except (ConnectionError, ValueError) as e:
+            _LOGGER.warning("音乐控制失败 device=%s: %s", device_id, e)
+            return False
+        if not ok:
+            return False
+
+        optimistic: dict[str, Any] = {}
+        if action == "play":
+            optimistic.update(media_state="playing", music_play_status=1)
+        elif action == "pause":
+            optimistic.update(media_state="paused", music_play_status=0)
+        elif action == "volume" and value is not None:
+            optimistic["volume"] = max(0, min(100, int(value)))
+        elif action == "mute":
+            state = self.device_states.get(device_id, {})
+            optimistic["muted"] = not bool(state.get("muted", False))
+        elif action == "seek" and value is not None:
+            optimistic["media_position"] = max(0, int(value) / 1000)
+        if optimistic:
+            self.state_store.merge(
+                device_id, optimistic, StateSource.OPTIMISTIC
+            )
+            self.async_set_updated_data(self.device_states)
+        return True
 
     # ------------------------------------------------------------------
     # 晾衣架控制（cmd=98）

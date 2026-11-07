@@ -74,6 +74,44 @@ class BinaryProtocolTests(unittest.TestCase):
             "https://homemate.orvibo.com/getOauthToken",
         )
 
+    def test_mixpad_media_commands_match_official_app_contract(self) -> None:
+        expected = {
+            "pause": (0, None),
+            "play": (1, 2),
+            "volume": (2, 37),
+            "mute": (3, None),
+            "previous": (6, None),
+            "next": (7, None),
+            "seek": (11, 12500),
+        }
+        for action, (value1, value2) in expected.items():
+            with self.subTest(action=action):
+                value = value2 if action in {"volume", "seek"} else None
+                payload = self.packet.HomemateJsonData.ssl_control_media(
+                    "user", "mixpad-uid", action, value
+                )
+                self.assertEqual(payload["cmd"], 15)
+                self.assertEqual(payload["uid"], "mixpad-uid")
+                self.assertNotIn("deviceId", payload)
+                self.assertEqual(payload["data"]["type"], 2)
+                self.assertEqual(payload["data"]["order"], "song control")
+                self.assertEqual(payload["data"]["value1"], value1)
+                if value2 is None:
+                    self.assertNotIn("value2", payload["data"])
+                else:
+                    self.assertEqual(payload["data"]["value2"], value2)
+
+    def test_mixpad_media_status_query_uses_property_list(self) -> None:
+        payload = self.packet.HomemateJsonData.ssl_query_media_status(
+            "user", "mixpad-uid"
+        )
+        self.assertEqual(payload["cmd"], 15)
+        self.assertEqual(payload["data"]["type"], 13)
+        self.assertEqual(
+            payload["data"]["property"],
+            "music_current_song,music_play_status,music_play_mode,volume,mute",
+        )
+
     def test_static_packet_round_trip(self) -> None:
         """验证用静态密钥构建的包可以正确解析。"""
         payload = {"cmd": 230, "familyId": "family-1", "serial": 1}

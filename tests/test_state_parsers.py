@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 import sys
 import types
 import unittest
@@ -21,10 +22,14 @@ def _load_modules():
     cover = importlib.import_module(f"{package_name}.parsers.cover")
     sensor = importlib.import_module(f"{package_name}.parsers.sensor")
     appliance = importlib.import_module(f"{package_name}.parsers.appliance")
+    media = importlib.import_module(f"{package_name}.parsers.media")
     lock = importlib.import_module(f"{package_name}.parsers.lock")
     thermostat = importlib.import_module(f"{package_name}.parsers.thermostat")
     device_types = importlib.import_module(f"{package_name}.device_types")
-    return parsers, light, cover, sensor, appliance, lock, thermostat, device_types
+    return (
+        parsers, light, cover, sensor, appliance, media, lock, thermostat,
+        device_types,
+    )
 
 
 class StateParserTests(unittest.TestCase):
@@ -36,10 +41,42 @@ class StateParserTests(unittest.TestCase):
             cls.cover,
             cls.sensor,
             cls.appliance,
+            cls.media,
             cls.lock,
             cls.thermostat,
             cls.device_types,
         ) = _load_modules()
+
+    def test_mixpad_music_properties_are_normalized(self) -> None:
+        current_song = {
+            "position": 12500,
+            "music": {
+                "title": "Track",
+                "singer": "Artist",
+                "albums": "Album",
+                "duration": 245000,
+                "imageUrl": "https://example.test/cover.jpg",
+            },
+        }
+        patch = self.media.parse_music_host(
+            {},
+            {
+                "properties": {
+                    "music_play_status": {"value": "1"},
+                    "music_play_mode": "2",
+                    "volume": {"value": "73"},
+                    "mute": "0",
+                    "music_current_song": json.dumps(current_song),
+                }
+            },
+        )
+        self.assertEqual(patch.values["media_state"], "playing")
+        self.assertEqual(patch.values["volume"], 73)
+        self.assertTrue(patch.values["muted"])
+        self.assertEqual(patch.values["media_position"], 12.5)
+        self.assertEqual(patch.values["media_duration"], 245)
+        self.assertEqual(patch.values["media_title"], "Track")
+        self.assertEqual(patch.values["media_artist"], "Artist")
 
     def test_dream_curtain_keeps_position_and_angle_independent(self) -> None:
         state = {"position": 39, "angle": 90}

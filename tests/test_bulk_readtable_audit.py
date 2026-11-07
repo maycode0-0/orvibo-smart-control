@@ -123,7 +123,7 @@ class BulkReadtableAuditTests(unittest.TestCase):
         )
         self.assertEqual(
             result["counts"],
-            {"registration_only": 2},
+            {"recognized_only": 1, "registration_only": 1},
         )
 
     def test_report_does_not_persist_names_or_identifiers(self) -> None:

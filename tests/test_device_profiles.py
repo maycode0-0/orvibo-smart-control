@@ -67,6 +67,12 @@ class DeviceProfileTests(unittest.TestCase):
         })
         self.assertTrue(unknown.registration_only)
 
+    def test_music_host_is_protocol_supported_without_hardware_claim(self) -> None:
+        profile = self.module.get_device_profile({"device_type_raw": 128})
+        self.assertEqual(profile.category, self.module.DeviceCategory.MUSIC_HOST)
+        self.assertFalse(profile.hardware_verified)
+        self.assertFalse(profile.registration_only)
+
     def test_tubular_motor_is_hardware_verified(self) -> None:
         profile = self.module.get_device_profile({"device_type_raw": 35})
         self.assertEqual(

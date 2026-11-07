@@ -108,6 +108,44 @@ class SSLStateUpdateTests(unittest.TestCase):
         self.assertEqual(updates[0][0], "w-lock")
         self.assertEqual(updates[0][1]["time"], 1786675012)
 
+    def test_media_status_list_becomes_incremental_property_updates(self) -> None:
+        client = object.__new__(self.module.SSLClient)
+        updates = []
+        client.on_status_update = lambda device_id, status: updates.append(
+            (device_id, status)
+        )
+
+        handled = client._handle_media_status_response(
+            {
+                "cmd": self.module.CMD_CONTROL,
+                "uid": "mixpad-uid",
+                "data": {
+                    "type": 13,
+                    "statusList": [
+                        {
+                            "deviceId": "music-host",
+                            "property": "volume",
+                            "value": "46",
+                        },
+                        {
+                            "deviceId": "music-host",
+                            "property": "music_play_status",
+                            "value": "1",
+                        },
+                    ],
+                },
+            }
+        )
+
+        self.assertTrue(handled)
+        self.assertEqual([item[0] for item in updates], ["music-host"] * 2)
+        self.assertEqual(updates[0][1]["properties"], {"volume": "46"})
+        self.assertEqual(
+            updates[1][1]["properties"], {"music_play_status": "1"}
+        )
+        self.assertEqual(updates[0][1]["uid"], "mixpad-uid")
+        self.assertTrue(updates[0][1]["online"])
+
 
 if __name__ == "__main__":
     unittest.main()
