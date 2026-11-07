@@ -62,7 +62,8 @@ def _load_ssl_client_module():
         CMD_HELLO=1,
         CMD_LOGIN=2,
         CMD_STATE_UPDATE=42,
-        CMD_CONTROL=43,
+        CMD_CONTROL=15,
+        CMD_MUSIC_CONTROL=289,
         CMD_HEARTBEAT=3,
         CMD_HANDSHAKE=4,
         CMD_CLOTHES_HORSE_CONTROL=98,
@@ -117,7 +118,7 @@ class SSLStateUpdateTests(unittest.TestCase):
 
         handled = client._handle_media_status_response(
             {
-                "cmd": self.module.CMD_CONTROL,
+                "cmd": 289,
                 "uid": "mixpad-uid",
                 "data": {
                     "type": 13,
@@ -144,6 +145,7 @@ class SSLStateUpdateTests(unittest.TestCase):
             updates[1][1]["properties"], {"music_play_status": "1"}
         )
         self.assertEqual(updates[0][1]["uid"], "mixpad-uid")
+        self.assertEqual(updates[0][1]["cmd"], 289)
         self.assertTrue(updates[0][1]["online"])
 
 

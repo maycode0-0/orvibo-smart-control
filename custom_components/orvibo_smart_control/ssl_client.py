@@ -14,7 +14,8 @@ from .meari_session import CMD_MEARI_SESSION, build_session_request
 from .const import (
     CLIENT_CERT, CLIENT_KEY, SERVER_CA, ID_UNSET, DEFAULT_KEY,
     SSL_MAX_RECONNECT_ATTEMPTS,
-    CMD_HELLO, CMD_LOGIN, CMD_STATE_UPDATE, CMD_CONTROL, CMD_HEARTBEAT, CMD_HANDSHAKE,
+    CMD_HELLO, CMD_LOGIN, CMD_STATE_UPDATE, CMD_CONTROL, CMD_MUSIC_CONTROL,
+    CMD_HEARTBEAT, CMD_HANDSHAKE,
     CMD_CLOTHES_HORSE_CONTROL, CMD_CLOTHES_HORSE_STATE, CMD_CLOTHES_HORSE_QUERY,
     CMD_COS_AUTH, CMD_TEMP_PASSWORD, CMD_DELETE_AUTHORIZATION,
 )
@@ -1026,8 +1027,10 @@ class SSLClient:
                 elif data.get("namespace") == "device_manage" and data.get("action") == "upLoadDeviceList":
                     await self._handle_upload_device_list(data)
                 elif cmd == CMD_CONTROL:
+                    _LOGGER.debug("收到设备控制 cmd=15 响应 status=%s", data.get("status"))
+                elif cmd == CMD_MUSIC_CONTROL:
                     if not self._handle_media_status_response(data):
-                        _LOGGER.debug("收到无音乐状态的 cmd=15 响应")
+                        _LOGGER.debug("收到无音乐状态的 cmd=289 响应 status=%s", data.get("status"))
                 elif cmd == CMD_STATE_UPDATE:
                     await self._handle_state_update(data)
                 elif cmd == CMD_CLOTHES_HORSE_STATE:
@@ -1164,6 +1167,10 @@ class SSLClient:
 
     def _handle_media_status_response(self, data: dict) -> bool:
         """Translate a type=13 statusList response into normal state updates."""
+        status = data.get("status")
+        if status not in (None, 0, "0"):
+            _LOGGER.warning("音乐指令返回失败 cmd=289 status=%s", status)
+            return False
         response_data = data.get("data")
         if not isinstance(response_data, dict):
             return False
@@ -1187,7 +1194,7 @@ class SSLClient:
                     "properties": {property_name: item.get("value")},
                     "deviceId": device_id,
                     "uid": uid,
-                    "cmd": CMD_CONTROL,
+                    "cmd": CMD_MUSIC_CONTROL,
                     "online": True,
                 },
             )

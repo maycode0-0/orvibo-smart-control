@@ -90,22 +90,19 @@ class BinaryProtocolTests(unittest.TestCase):
                 payload = self.packet.HomemateJsonData.ssl_control_media(
                     "user", "mixpad-uid", action, value
                 )
-                self.assertEqual(payload["cmd"], 15)
+                self.assertEqual(payload["cmd"], 289)
                 self.assertEqual(payload["uid"], "mixpad-uid")
                 self.assertNotIn("deviceId", payload)
-                self.assertEqual(payload["data"]["type"], 2)
-                self.assertEqual(payload["data"]["order"], "song control")
-                self.assertEqual(payload["data"]["value1"], value1)
-                if value2 is None:
-                    self.assertNotIn("value2", payload["data"])
-                else:
-                    self.assertEqual(payload["data"]["value2"], value2)
+                expected_data = {"type": 2, "order": "song control", "value1": value1}
+                if value2 is not None:
+                    expected_data["value2"] = value2
+                self.assertEqual(payload["data"], expected_data)
 
     def test_mixpad_media_status_query_uses_property_list(self) -> None:
         payload = self.packet.HomemateJsonData.ssl_query_media_status(
             "user", "mixpad-uid"
         )
-        self.assertEqual(payload["cmd"], 15)
+        self.assertEqual(payload["cmd"], 289)
         self.assertEqual(payload["data"]["type"], 13)
         self.assertEqual(
             payload["data"]["property"],

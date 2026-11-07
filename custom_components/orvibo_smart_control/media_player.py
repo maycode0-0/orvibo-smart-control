@@ -9,6 +9,7 @@ from homeassistant.components.media_player import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -117,33 +118,42 @@ class OrviboMusicPlayer(CoordinatorEntity, MediaPlayerEntity):
     def media_position(self) -> float | None:
         return self._state_data.get("media_position")
 
+    async def _async_control(self, action: str, value: int | None = None) -> None:
+        if value is None:
+            ok = await self.coordinator.async_media_control(self._device_id, action)
+        else:
+            ok = await self.coordinator.async_media_control(
+                self._device_id, action, value
+            )
+        if not ok:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="media_control_failed",
+            )
+
     async def async_media_play(self) -> None:
-        await self.coordinator.async_media_control(self._device_id, "play")
+        await self._async_control("play")
 
     async def async_media_pause(self) -> None:
-        await self.coordinator.async_media_control(self._device_id, "pause")
+        await self._async_control("pause")
 
     async def async_media_previous_track(self) -> None:
-        await self.coordinator.async_media_control(self._device_id, "previous")
+        await self._async_control("previous")
 
     async def async_media_next_track(self) -> None:
-        await self.coordinator.async_media_control(self._device_id, "next")
+        await self._async_control("next")
 
     async def async_set_volume_level(self, volume: float) -> None:
         level = max(0, min(100, round(float(volume) * 100)))
-        await self.coordinator.async_media_control(
-            self._device_id, "volume", level
-        )
+        await self._async_control("volume", level)
 
     async def async_mute_volume(self, mute: bool) -> None:
         if self.is_volume_muted is None or bool(mute) != self.is_volume_muted:
-            await self.coordinator.async_media_control(self._device_id, "mute")
+            await self._async_control("mute")
 
     async def async_media_seek(self, position: float) -> None:
         milliseconds = max(0, round(float(position) * 1000))
-        await self.coordinator.async_media_control(
-            self._device_id, "seek", milliseconds
-        )
+        await self._async_control("seek", milliseconds)
 
     @property
     def should_poll(self) -> bool:

@@ -38,6 +38,11 @@ def _load_media_player_module():
     class MediaPlayerEntity:
         pass
 
+    class HomeAssistantError(Exception):
+        def __init__(self, **kwargs):
+            self.translation_key = kwargs.get("translation_key")
+            super().__init__(self.translation_key)
+
     class MediaPlayerEntityFeature(IntFlag):
         PAUSE = 1
         PLAY = 2
@@ -62,6 +67,9 @@ def _load_media_player_module():
         ),
         "homeassistant.core": _module(
             "homeassistant.core", HomeAssistant=object
+        ),
+        "homeassistant.exceptions": _module(
+            "homeassistant.exceptions", HomeAssistantError=HomeAssistantError
         ),
         "homeassistant.helpers": _module("homeassistant.helpers"),
         "homeassistant.helpers.entity_platform": _module(
@@ -90,6 +98,7 @@ def _load_media_player_module():
     with patch.dict(sys.modules, modules):
         sys.modules[module_name] = media_player
         spec.loader.exec_module(media_player)
+    media_player.TestHomeAssistantError = HomeAssistantError
     return media_player
 
 
@@ -190,6 +199,32 @@ class MediaPlayerTests(unittest.TestCase):
         self.assertEqual(
             self.module.OrviboMusicPlayer._attr_supported_features, expected
         )
+
+    def test_failed_controls_raise_instead_of_silently_succeeding(self):
+        for method, args in (
+            ("async_media_play", ()),
+            ("async_media_pause", ()),
+            ("async_media_previous_track", ()),
+            ("async_media_next_track", ()),
+            ("async_set_volume_level", (0.5,)),
+            ("async_mute_volume", (True,)),
+            ("async_media_seek", (12.0,)),
+        ):
+            with self.subTest(method=method):
+                coordinator = self.make_coordinator()
+                coordinator.async_media_control.return_value = False
+                original_state = dict(coordinator.device_states["music-host"])
+                entity = self.module.OrviboMusicPlayer(
+                    coordinator, coordinator.devices["music-host"]
+                )
+                with self.assertRaises(self.module.TestHomeAssistantError) as caught:
+                    asyncio.run(getattr(entity, method)(*args))
+                self.assertEqual(
+                    caught.exception.translation_key, "media_control_failed"
+                )
+                self.assertEqual(
+                    coordinator.device_states["music-host"], original_state
+                )
 
 
 if __name__ == "__main__":

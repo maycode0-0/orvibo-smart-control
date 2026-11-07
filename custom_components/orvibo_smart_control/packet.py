@@ -22,7 +22,7 @@ from .const import (
     HTTPS_HOST, HTTP_HEADERS,
     SOFTWARE_NAME, SOFTWARE_VER, SOFTWARE_VERSION,
     SYS_VERSION, HARDWARE_VERSION, LANGUAGE, PHONE_NAME, DEBUG_INFO,
-    CMD_HELLO, CMD_LOGIN, CMD_CONTROL, CMD_HEARTBEAT,
+    CMD_HELLO, CMD_LOGIN, CMD_CONTROL, CMD_MUSIC_CONTROL, CMD_HEARTBEAT,
     CMD_CLOTHES_HORSE_CONTROL, CMD_CLOTHES_HORSE_QUERY,
     CMD_COS_AUTH, CMD_TEMP_PASSWORD, CMD_DELETE_AUTHORIZATION,
 )
@@ -214,7 +214,6 @@ class HomemateJsonData:
         data = {
             "type": 2,
             "order": "song control",
-            "delayTime": 0,
             "value1": action_values[action],
         }
         if action == "play":
@@ -228,7 +227,7 @@ class HomemateJsonData:
             "uid": device_uid,
             "userName": username,
             "data": data,
-            "cmd": CMD_CONTROL,
+            "cmd": CMD_MUSIC_CONTROL,
             "serial": generate_serial(),
             "clientType": 1,
             "uniSerial": generate_serial(use_time=True),
@@ -250,7 +249,7 @@ class HomemateJsonData:
                     "volume,mute"
                 ),
             },
-            "cmd": CMD_CONTROL,
+            "cmd": CMD_MUSIC_CONTROL,
             "serial": generate_serial(),
             "clientType": 1,
             "uniSerial": generate_serial(use_time=True),

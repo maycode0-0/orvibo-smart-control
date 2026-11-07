@@ -21,14 +21,14 @@ model 和类型信息。元数据用于选取具体协议，不能仅凭设备�
 
 ## 状态与传输约定
 
-### MixPad 背景音乐（2.0.0b8）
+### MixPad 背景音乐（b8 引入，b9 修正命令号）
 
-类型 `128` 的音乐主机通过云端 SSL `cmd=15` 控制，外层使用主机 `uid`，
-`data.type=2`、`order="song control"`、`delayTime=0`。`value1` 分别为暂停 `0`、
+类型 `128` 的音乐主机通过云端 SSL `cmd=289` 控制，外层使用主机 `uid`，
+`data.type=2`、`order="song control"`。`value1` 分别为暂停 `0`、
 播放 `1`（`value2=2`）、音量 `2`（`value2=0..100`）、切换静音 `3`、
 上一首 `6`、下一首 `7`、跳转 `11`（`value2` 毫秒）。HA 实体边界转换音量和秒数。
 
-初始查询使用 `data.type=13`，属性为
+初始查询同样使用 `cmd=289`，`data.type=13`，属性为
 `music_current_song,music_play_status,music_play_mode,volume,mute`。
 响应 `data.statusList` 按 `deviceId/property/value` 进入同一状态分发器；
 `music_play_status=1` 为播放，`0` 为暂停；官方 App 将 `mute=0` 视为静音。
@@ -41,6 +41,21 @@ REA/JADX Evidence：动作类 `ev_71cef0f61345c3c970ff0d48a76be9fc34c178cc92176d
 控制器 `ev_edb0065acbb5f39e91d20dbc8df915a32145406e2ef4013182710a57b3de79b4`。
 这些证据不包含运行时观察；`hardware_verified=false`。未发现支持同一命令的 LAN
 证据，因此纯 LAN 模式不提供音乐控制；类型 `114/45` 网关不会额外创建媒体实体。
+
+b9 进一步核对 `com.orvibo.homemate.model.device.music.a` 的构造器，确认其
+`this.cmd = 289`，Evidence 为
+`ev_2832cda086a5312d47280a83c67bfbfaab9deb415dd580615cac07f2c70dbdf3`。
+父类 `com.orvibo.homemate.model.s.getCommand(JSONObject, RequestConfig)`
+将该 `this.cmd` 传入通用请求封装，Evidence 为
+`ev_d9e2c192edb2322f5e3b5ec9021201a09076d5aca62954c442e34579ead03b6d`。
+最终 `com.orvibo.homemate.core.c.Z0(...)` 将该命令号写入 JSON 的 `cmd`，
+随后序列化并加密封包，Evidence 为
+`ev_cf4dfaca03d2809da4d7c90806b78a4e0eed6d1291e035e163828c73dfd42022`。
+恢复播放 `a.U(uid)` 的正文为 `type=2/value1=1/value2=2`，无 `delayTime`，
+Evidence 为 `ev_fbb271391886c08aa4d3ab806b62227c4c15c158f9fa21390b432a301c398a64`。
+此前 b8 将正文套入普通设备 `cmd=15` 是实现错误；b9 同时修正发送、查询和接收分发。
+云端非零错误状态不进入音乐状态解析；发送失败通过媒体实体抛出 HA 可见错误。
+本轮只有用户失败反馈、静态证据和离线回归，不包含修复后真机成功验证。
 
 ### 调光与 RF
 
@@ -90,7 +105,7 @@ REA/JADX Evidence：动作类 `ev_71cef0f61345c3c970ff0d48a76be9fc34c178cc92176d
 `git diff --check` 通过；新增协议模块和新增测试通过 Ruff 检查。
 全库 Ruff 仍有既有问题，本次没有进行无关的全库格式化。
 
-当前以 `2.0` 为基础，发布版本为 `2.0.0b8`，协议重构基线为 `0.2.6b17`。
-`b8` 增加上述 MixPad 音乐协议；历史测试数量保留发布时的记录，本版结果见
-[发布说明](releases/2.0.0b8.md) 与 [CHANGELOG](../CHANGELOG.md)。
+当前以 `2.0` 为基础，发布版本为 `2.0.0b9`，协议重构基线为 `0.2.6b17`。
+`b8` 增加 MixPad 音乐实体，`b9` 修正音乐命令号；历史测试数量保留发布时的记录，本版结果见
+[发布说明](releases/2.0.0b9.md) 与 [CHANGELOG](../CHANGELOG.md)。
 [迁移指南](MIGRATION.md) 说明升级与回退，[文档索引](README.md) 汇总其他协议资料。

@@ -1071,7 +1071,7 @@ class OrviboSmartControlCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         )
 
     # ------------------------------------------------------------------
-    # MixPad background music (cloud cmd=15, type=2 song control)
+    # MixPad background music (cloud cmd=289, type=2 song control)
     # ------------------------------------------------------------------
     async def async_media_control(
         self,

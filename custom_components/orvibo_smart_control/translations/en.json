@@ -242,6 +242,11 @@
             "local_data_cleared": "Local integration data cleared. Removed {count} files"
         }
     },
+    "exceptions": {
+        "media_control_failed": {
+            "message": "The music command could not be sent. Check the cloud connection and the ORVIBO integration logs."
+        }
+    },
     "selector": {
         "camera_stream_quality": {
             "options": {

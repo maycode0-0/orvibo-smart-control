@@ -242,6 +242,11 @@
             "local_data_cleared": "本地数据已清理，共删除 {count} 个文件"
         }
     },
+    "exceptions": {
+        "media_control_failed": {
+            "message": "音乐控制指令未能发送，请检查云端连接和 ORVIBO 集成日志。"
+        }
+    },
     "selector": {
         "camera_stream_quality": {
             "options": {
