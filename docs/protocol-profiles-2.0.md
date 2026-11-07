@@ -21,6 +21,29 @@ model 和类型信息。元数据用于选取具体协议，不能仅凭设备�
 
 ## 状态与传输约定
 
+### MixPad 背景音乐（2.0.0b8）
+
+类型 `128` 的音乐主机通过云端 SSL `cmd=15` 控制，外层使用主机 `uid`，
+`data.type=2`、`order="song control"`、`delayTime=0`。`value1` 分别为暂停 `0`、
+播放 `1`（`value2=2`）、音量 `2`（`value2=0..100`）、切换静音 `3`、
+上一首 `6`、下一首 `7`、跳转 `11`（`value2` 毫秒）。HA 实体边界转换音量和秒数。
+
+初始查询使用 `data.type=13`，属性为
+`music_current_song,music_play_status,music_play_mode,volume,mute`。
+响应 `data.statusList` 按 `deviceId/property/value` 进入同一状态分发器；
+`music_play_status=1` 为播放，`0` 为暂停；官方 App 将 `mute=0` 视为静音。
+当前歌曲 JSON 的 `position` 与嵌套 `music.duration` 均从毫秒转换为秒。
+
+静态依据为智家 365 `5.2.6.307`，APK SHA-256 为
+`6ea3f3eff41ad4657ca437d10c79022949a1f080af857a8800dc6b6819abac8c`。
+REA/JADX Evidence：动作类 `ev_71cef0f61345c3c970ff0d48a76be9fc34c178cc92176d873fe50b3edf350db8`，
+请求类 `ev_27133f7edbe447ea6e3f2961495fa23089f160586ebcf2cb8e6bee5650cd29ca`，
+控制器 `ev_edb0065acbb5f39e91d20dbc8df915a32145406e2ef4013182710a57b3de79b4`。
+这些证据不包含运行时观察；`hardware_verified=false`。未发现支持同一命令的 LAN
+证据，因此纯 LAN 模式不提供音乐控制；类型 `114/45` 网关不会额外创建媒体实体。
+
+### 调光与 RF
+
 - 原生调光灯的状态 `brightness` 始终保存协议刻度。HA 的 0..255 输入在路由中
   转换，实体输出再解码；属性百分比、库存初始化、云刷新、SSL/LAN 推送和超时
   乐观状态采用相同约定。
@@ -67,7 +90,7 @@ model 和类型信息。元数据用于选取具体协议，不能仅凭设备�
 `git diff --check` 通过；新增协议模块和新增测试通过 Ruff 检查。
 全库 Ruff 仍有既有问题，本次没有进行无关的全库格式化。
 
-当前以 `2.0` 为基础，发布版本为 `2.0.0b1`，协议重构基线为 `0.2.6b17`。
-`b1` 修复摄像机/NVR 支持显示，未修改本页协议；全量测试运行 816 项，814 项通过、2 项因缺少 FFmpeg 跳过。
-[发布说明](releases/2.0.0b1.md) 与 [CHANGELOG](../CHANGELOG.md) 记录当前变化，
+当前以 `2.0` 为基础，发布版本为 `2.0.0b8`，协议重构基线为 `0.2.6b17`。
+`b8` 增加上述 MixPad 音乐协议；历史测试数量保留发布时的记录，本版结果见
+[发布说明](releases/2.0.0b8.md) 与 [CHANGELOG](../CHANGELOG.md)。
 [迁移指南](MIGRATION.md) 说明升级与回退，[文档索引](README.md) 汇总其他协议资料。

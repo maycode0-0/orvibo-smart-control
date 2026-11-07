@@ -135,6 +135,19 @@ class CapabilityRegistryTests(unittest.TestCase):
         self.assertFalse(cap.status_only)
         self.assertEqual(cap.channels, frozenset({self.cap.ControlChannel.SSL}))
 
+    def test_music_host_uses_cloud_and_rejects_lan_state(self) -> None:
+        device = {"device_type_raw": 128}
+        cap = self.cap.capability_for(device)
+        self.assertTrue(cap.cloud_only)
+        self.assertFalse(cap.hardware_verified)
+        self.assertEqual(cap.platforms, frozenset({"media_player"}))
+        self.assertEqual(cap.channels, frozenset({self.cap.ControlChannel.SSL}))
+        self.assertFalse(self.cap.lan_state_allowed(device))
+        self.assertEqual(
+            self.cap.transport_path_for(device, self.cap.TransportMode.LAN_ONLY),
+            self.cap.TransportPath.UNAVAILABLE,
+        )
+
     def test_lan_controllable_types_prefer_lan_with_ssl_fallback(self) -> None:
         subtypes = {
             501: 426,  # lightStd

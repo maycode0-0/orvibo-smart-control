@@ -80,7 +80,7 @@ _STATUS_ONLY_TYPES = frozenset({107})
 
 # 本集成的云专属路径（ADR-4）；摄像头仅使用云端库存元数据，
 # 不暴露 MixPad LAN 或 SDK 控制，也不据此判断视频流传输方式。
-_CLOUD_ONLY_TYPES = frozenset({14, 52, 107, 162, 522})
+_CLOUD_ONLY_TYPES = frozenset({14, 52, 107, 128, 162, 522})
 
 # 只读分类（无设备控制通道，状态仍正常推送）
 _STATUS_ONLY_CATEGORIES = frozenset(

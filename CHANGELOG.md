@@ -2,9 +2,17 @@
 
 ## [Unreleased]
 
+## [2.0.0b8] - 2026-11-07
+
 ### Added
 
 - 新增 MixPad 背景音乐 `media_player`：支持播放、暂停、切歌、音量、静音与进度控制，并解析当前歌曲和播放状态。协议来自智家 365 5.2.6.307 APK 的 REA/JADX 静态证据，当前仅走云端 SSL 通道。
+
+### Validation
+
+- Python 3.12 定向测试 117 项通过，覆盖媒体实体、精确封包、歌曲属性、SSL 状态分发、云专属能力和发布流程；Python 编译、两张内置卡片 JavaScript 语法与 Git 差异检查通过。
+- 本地全量运行 898 项，7 项既有视频测试受旧 FFmpeg 和 Windows 短时限影响未通过；视频实现和对应测试与 b7 一致。发布流水线在 Linux 执行全量测试、HACS validation 和 hassfest，通过后才发布安装包。
+- 尚未进行 MixPad 真机控制验证，保持 `hardware_verified=false`；纯 LAN 模式不支持音乐控制。
 
 ## [2.0.0b7] - 2026-10-30
 

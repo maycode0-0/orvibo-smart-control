@@ -17,6 +17,13 @@
 位置与关闭状态保持未知。非 RF 窗帘继续按既有能力提供位置操作。
 静态协议和数值约定见 [2.0 协议重构](protocol-profiles-2.0.md)。
 
+## MixPad 媒体标准动作
+
+类型 `128` 的背景音乐主机提供 `media_player.media_play`、`media_pause`、
+`media_previous_track`、`media_next_track`、`volume_set`、`volume_mute` 与 `media_seek`。
+音量使用 HA 的 `volume_level: 0..1`，跳转使用 `seek_position` 秒；内部转换为百分比和毫秒。
+这些动作使用默认结合模式或纯云端模式，不新增集成专用服务；任意 URL 播放和音源选择不支持。
+
 ## 服务总览
 
 | 服务                   | 用途                           | 响应                                  |

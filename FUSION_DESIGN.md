@@ -72,6 +72,7 @@ flowchart TD
 | `device_inventory.py`              | 设备过滤、初始化和周期云快照合并                      | 实时连接管理        |
 | `lan/`                             | 网关发现、认证、TCP 生命周期、请求关联和 payload 适配 | HA 实体语义         |
 | `ssl_client.py`                    | 云端二进制 TLS 会话、推送和命令                       | LAN 可达性判断      |
+| `media_player.py`、`parsers/media.py` | MixPad 音乐的 HA 单位转换、歌曲和播放属性解析         | 任意 URL 播放或音源发现 |
 | `status_dispatcher.py`、`parsers/` | ID 匹配和分类状态补丁                                 | 保持网络连接        |
 | `state_store.py`                   | 字段级来源修订、保护窗口和去重                        | 协议字段推断        |
 | `control_router.py`                | 把 HA 动作转为规范方法和参数                          | 选择传输实例        |
@@ -178,6 +179,11 @@ RF 34/35 的开、关、停为 `rf control` 的 `380000/380001/380002`。实体�
 动作，拒绝精确位置请求；位置和 `is_closed` 为未知，成功发送也不推测电机已到位。
 
 ### 单次回退
+
+MixPad 类型 `128` 的音乐控制单独由 coordinator 调用 SSL `cmd=15` 音乐封包，
+启动时按主机 UID 去重查询音乐属性。`statusList` 与实时属性推送共用状态解析器和
+`StateStore`；乐观更新只在成功发送后写入。当前无 LAN 协议证据，纯 LAN 模式不建立
+所需 SSL 客户端，因此不执行音乐控制；不推测音源、URL 播放或网关媒体能力。
 
 选择 LAN 后，如果调用抛出异常或明确返回失败，执行器会获取当前 SSL 客户端并用相同规范
 方法重试一次。规则如下：

@@ -1,7 +1,7 @@
 # ORVIBO Smart Control
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![Version](https://img.shields.io/badge/version-2.0.0b7-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
+[![Version](https://img.shields.io/badge/version-2.0.0b8-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
 
 ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。它把 MixPad
 网关局域网直连与 ORVIBO 云端协议放在同一条设备、状态和控制链路中：能在 LAN
@@ -10,11 +10,12 @@ ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。�
 ## 2.0 版本
 
 `2.0.0b0` 基于 `0.2.6b17`，开启 `2.0` 版本线，包含基于 HomeMate 5.2.6.307
-逆向证据的协议重构。当前 `2.0.0b7` 补上实时视频持续丢包后的恢复；继承 b6 的摄像机
+逆向证据的协议重构。当前 `2.0.0b8` 新增 MixPad 背景音乐控制；继承 b7 的实时视频
+持续丢包恢复、b6 的摄像机
 共享读取、通道补发现和卡片启动恢复，以及 b5 的可选流畅画质、b4 的解析 CPU 优化、b3 的首次连接恢复与
 503 诊断，以及 b2 的开门记录。
 开发分支仍为 `2.0`，具体变更见
-[发布说明](docs/releases/2.0.0b7.md) 与 [CHANGELOG](CHANGELOG.md)。
+[发布说明](docs/releases/2.0.0b8.md) 与 [CHANGELOG](CHANGELOG.md)。
 
 本次统一类型 `0`、`116` 和其中虚拟 MixPad 调光器的亮度编码、回读及状态单位；
 为明确标记为 RF 的 `34/35` 窗帘提供开、关、停，不提供位置滑块或猜测的关闭状态。
@@ -72,7 +73,7 @@ LAN > 云端实时推送（SSL）> 云端快照（REST）> 乐观状态 > 初始
 ### 摄像机与录像机实时画面
 
 从 `0.2.6b4` 起，为匹配成功的 Meari XTS/p2p=2 摄像机及录像机在线通道创建 `camera` 实体。
-在 HACS 更新到 `v2.0.0b7` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
+在 HACS 更新到 `v2.0.0b8` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
 “通道 3”等摄像头实体；也可把实体加入图片概览卡片并设置 `camera_view: live`。
 HAOS 使用自带 FFmpeg，无需单独安装视频服务。首次连接需要获取授权和建立设备连接，
 可能需要数十秒；首次缩略图超时后再次打开即可复用正在建立的连接。
@@ -185,6 +186,16 @@ MD5 摘要；配置项不保存明文，但该摘要仍可直接用于认证，�
 具体型号、`deviceType`、证据等级、限制和通道标记见
 [设备支持矩阵](docs/DEVICE_SUPPORT.md)。未列出的型号可能会被识别并展示，但不会据此
 推测控制命令；这是防止未知设备收到错误动作的安全约束。
+
+## MixPad 背景音乐
+
+`2.0.0b8` 为类型 `128` 的背景音乐主机创建 `media_player` 实体，支持播放、暂停、
+上一首/下一首、音量、静音和播放进度，并显示设备返回的歌曲信息。更新后重启 HA，
+在集成设备选择中勾选音乐主机，再使用 HA 标准媒体控制或媒体控制卡片。
+
+使用默认结合模式或纯云端模式；纯 LAN 模式无法执行音乐控制。命令来自 APK 静态分析，
+尚待真机验证；不提供任意 URL 播放、投屏或音源选择。协议和验证边界见
+[MixPad 多媒体](docs/DEVICE_SUPPORT.md#mixpad-多媒体)。
 
 ## 门锁功能
 
