@@ -1,7 +1,7 @@
 # ORVIBO Smart Control
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![Version](https://img.shields.io/badge/version-2.0.0b9-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
+[![Version](https://img.shields.io/badge/version-2.0.0b10-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
 
 ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。它把 MixPad
 网关局域网直连与 ORVIBO 云端协议放在同一条设备、状态和控制链路中：能在 LAN
@@ -10,13 +10,13 @@ ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。�
 ## 2.0 版本
 
 `2.0.0b0` 基于 `0.2.6b17`，开启 `2.0` 版本线，包含基于 HomeMate 5.2.6.307
-逆向证据的协议重构。当前 `2.0.0b9` 修正 MixPad 音乐控制和状态查询的命令号；
-继承 b8 的背景音乐实体、b7 的实时视频
+逆向证据的协议重构。当前 `2.0.0b10` 增加 MixPad 专用场景动态文字播报；
+继承 b9 的音乐控制修复、b8 的背景音乐实体、b7 的实时视频
 持续丢包恢复、b6 的摄像机
 共享读取、通道补发现和卡片启动恢复，以及 b5 的可选流畅画质、b4 的解析 CPU 优化、b3 的首次连接恢复与
 503 诊断，以及 b2 的开门记录。
 开发分支仍为 `2.0`，具体变更见
-[发布说明](docs/releases/2.0.0b9.md) 与 [CHANGELOG](CHANGELOG.md)。
+[发布说明](docs/releases/2.0.0b10.md) 与 [CHANGELOG](CHANGELOG.md)。
 
 本次统一类型 `0`、`116` 和其中虚拟 MixPad 调光器的亮度编码、回读及状态单位；
 为明确标记为 RF 的 `34/35` 窗帘提供开、关、停，不提供位置滑块或猜测的关闭状态。
@@ -74,7 +74,7 @@ LAN > 云端实时推送（SSL）> 云端快照（REST）> 乐观状态 > 初始
 ### 摄像机与录像机实时画面
 
 从 `0.2.6b4` 起，为匹配成功的 Meari XTS/p2p=2 摄像机及录像机在线通道创建 `camera` 实体。
-在市场/HACS 更新到 `v2.0.0b9` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
+在市场/HACS 更新到 `v2.0.0b10` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
 “通道 3”等摄像头实体；也可把实体加入图片概览卡片并设置 `camera_view: live`。
 HAOS 使用自带 FFmpeg，无需单独安装视频服务。首次连接需要获取授权和建立设备连接，
 可能需要数十秒；首次缩略图超时后再次打开即可复用正在建立的连接。
@@ -198,9 +198,22 @@ MD5 摘要；配置项不保存明文，但该摘要仍可直接用于认证，�
 点击播放却没有动作的情况。b9 将音乐控制与初始查询改为官方请求的 `cmd=289`，
 接收并解析对应音乐状态；发送失败会向 HA 返回错误，云端拒绝码会写入日志。
 
-使用默认结合模式或纯云端模式；纯 LAN 模式无法执行音乐控制。命令来自 APK 静态分析，
-尚待真机验证；不提供任意 URL 播放、投屏或音源选择。协议和验证边界见
-[MixPad 多媒体](docs/DEVICE_SUPPORT.md#mixpad-多媒体)。
+使用默认结合模式或纯云端模式；纯 LAN 模式无法执行音乐控制。用户已确认 b9 在
+MixPad 7 Ultra / QQ 音乐上可正常播放，其他动作、型号和音源仍需分别验证。
+b10 增加独立的 `orvibo_smart_control.speak` 动作：先在 App 创建仅含一条 MixPad
+语音播报动作的专用场景，再由 HA 更新文字并执行。App 会保留最后一次文字：
+
+```yaml
+action: orvibo_smart_control.speak
+data:
+  scene_name: HA语音播报
+  message: 欢迎回家
+```
+
+多个集成配置项时还需填写 `entry_id`。文字最多 300 字，字符范围沿用 App 普通播报编辑器。
+该 HA 播报路径已通过离线回归，尚待真机测试；自定义音频 URL、文件、投屏和音源选择仍不支持。
+场景准备、限制及失败处理见 [文字播报指南](docs/mixpad-audio-playback.md)，
+音乐协议和验证边界见 [MixPad 多媒体](docs/DEVICE_SUPPORT.md#mixpad-多媒体)。
 
 ## 门锁功能
 

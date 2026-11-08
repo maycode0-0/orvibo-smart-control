@@ -2,7 +2,7 @@
 
 ## Development branch and documentation
 
-- `2.0` 是协议重构开发分支；用户指定以 `2.0` 为基础版本，当前发布为 `2.0.0b9`。
+- `2.0` 是协议重构开发分支；用户指定以 `2.0` 为基础版本，当前发布为 `2.0.0b10`。
   未发布变更写入 `CHANGELOG.md` 的 `Unreleased`，不得回写历史发布结果。
 - 修改协议档案时同步 `docs/protocol-profiles-2.0.md`、`docs/DEVICE_SUPPORT.md`、
   `FUSION_DESIGN.md` 和相关使用说明；新增文档加入 `docs/README.md` 索引。
@@ -12,7 +12,7 @@
 ## Release version policy
 
 - 默认发布的是临时诊断版本，版本号使用 `<major>.<minor>.<patch>bN`。
-  当前版本线从 `2.0.0b0` 开始，下一次临时发布使用 `2.0.0b10`；不再沿用 `0.2.6bN`。
+  当前版本线从 `2.0.0b0` 开始，下一次临时发布使用 `2.0.0b11`；不再沿用 `0.2.6bN`。
   这里的“发布”“发版”“更新版本”“发布最新版本”等普通说法，均按临时
   版本处理。
 - 只有用户明确说“发布正式版”时，才使用不带 `bN` 后缀的稳定版本，例如 `2.0.0`。
@@ -29,6 +29,7 @@
 ## User-facing release steps
 
 1. 运行适合改动范围的测试，并记录实际结果。
-2. 提交并推送后，等待 `unit-tests`、HACS validation 和 hassfest 全部成功。
+2. 开发变更先提交并推送到 `2.0`，再合并到 `main` 并推送，以触发用户指定的发布流程；
+   等待 `main` 的 `unit-tests`、HACS validation 和 hassfest 全部成功。
 3. 核验 GitHub Release 是普通 Release / Latest，且下载 ZIP 与发布提交一致。
 4. 向用户说明实际版本、安装方式、测试结果和仍需真机验证的部分。

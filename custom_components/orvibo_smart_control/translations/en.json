@@ -243,6 +243,36 @@
         }
     },
     "exceptions": {
+      "speech_select_entry": {
+        "message": "Select one ORVIBO configuration entry. Provide entry_id when more than one entry is loaded."
+      },
+      "speech_invalid_message": {
+        "message": "Enter 1-300 characters using Chinese, English letters, digits, whitespace or ，。！？,.!? punctuation, as in the app. Text is never truncated."
+      },
+      "speech_invalid_scene": {
+        "message": "Enter the exact name of the dedicated speech scene in the ORVIBO app."
+      },
+      "speech_scene_not_found": {
+        "message": "The dedicated speech scene was not found in the selected household."
+      },
+      "speech_ambiguous_scene": {
+        "message": "More than one scene matches. Give the dedicated speech scene a unique name."
+      },
+      "speech_unsafe_scene": {
+        "message": "Use a dedicated scene containing exactly one normal MixPad speech action. Other actions or incomplete scene data cannot be used."
+      },
+      "speech_cloud_unavailable": {
+        "message": "Speech scenes require cloud control. Use LAN and cloud or cloud-only mode and check the connection."
+      },
+      "speech_read_failed": {
+        "message": "The complete scene configuration could not be read. No speech command was sent."
+      },
+      "speech_update_failed": {
+        "message": "The speech-text update was not acknowledged. The scene was not triggered; its stored text may already have changed."
+      },
+      "speech_execute_failed": {
+        "message": "The scene trigger was not acknowledged. The updated text remains saved; check the panel before trying again to avoid duplicate speech."
+      },
         "media_control_failed": {
             "message": "The music command could not be sent. Check the cloud connection and the ORVIBO integration logs."
         }

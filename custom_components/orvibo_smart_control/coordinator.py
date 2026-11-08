@@ -28,6 +28,7 @@ from .lock_media_manager import LockMediaManager
 from .temp_password_manager import TempPasswordManager
 from .device_inventory import DeviceInventory
 from .control_executor import ControlExecutor
+from .speech import SpeechError, SpeechManager
 from .const import (
     DOMAIN,
     SSL_PORT,
@@ -72,6 +73,15 @@ class OrviboSmartControlCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
         )
         self.https_client.family_id = credentials.family_id or None
         self.ssl_client = None
+        self.speech = SpeechManager(
+            lambda: self.https_client.fetch_speech_table(),
+            lambda scene_no, binding: self.ssl_client.update_speech_scene(
+                scene_no, binding,
+            ),
+            lambda scene_no, scene_id: self.ssl_client.execute_speech_scene(
+                scene_no, scene_id,
+            ),
+        )
         self.gateway_manager: Optional[GatewayManager] = None
         self.lan_adapter: Optional[LanControlAdapter] = None
         self._lan_discover_task: Optional[asyncio.Task] = None
@@ -1073,6 +1083,12 @@ class OrviboSmartControlCoordinator(DataUpdateCoordinator[Dict[str, Any]]):
     # ------------------------------------------------------------------
     # MixPad background music (cloud cmd=289, type=2 song control)
     # ------------------------------------------------------------------
+    async def async_speak(self, scene_name: str, message: str) -> dict:
+        """Update the explicitly selected dedicated speech scene and execute it."""
+        if self.transport_mode == TransportMode.LAN_ONLY or self.ssl_client is None:
+            raise SpeechError("cloud_unavailable")
+        return await self.speech.speak(scene_name, message)
+
     async def async_media_control(
         self,
         device_id: str,

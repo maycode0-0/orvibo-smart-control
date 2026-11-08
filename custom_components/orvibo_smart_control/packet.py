@@ -237,6 +237,46 @@ class HomemateJsonData:
         }
 
     @classmethod
+    def ssl_update_speech_scene(
+        cls, username: str, scene_no: str, binding: dict,
+    ) -> dict:
+        """Modify one existing scene binding (APK core.c.l2 / util.d3.g)."""
+        return cls._ssl_scene_request(
+            username, scene_no, 195, sceneBindList=[dict(binding)],
+        )
+
+    @classmethod
+    def ssl_execute_speech_scene(
+        cls, username: str, scene_no: str, scene_id: int | None,
+    ) -> dict:
+        """Execute the saved scene with the official manual trigger type."""
+        if scene_id is not None and (type(scene_id) is not int or scene_id <= 0):
+            raise ValueError("invalid scene ID")
+        return cls._ssl_scene_request(
+            username, scene_no, 197, triggerType=0,
+            **({"sceneId": scene_id} if scene_id is not None else {}),
+        )
+
+    @classmethod
+    def _ssl_scene_request(
+        cls, username: str, scene_no: str, cmd: int, **fields,
+    ) -> dict:
+        if not isinstance(scene_no, str) or not scene_no.strip():
+            raise ValueError("invalid scene number")
+        return {
+            "userName": username,
+            "sceneNo": scene_no,
+            **fields,
+            "cmd": cmd,
+            "serial": generate_serial(),
+            "clientType": 1,
+            "uniSerial": generate_serial(use_time=True),
+            "serverRecord": False,
+            "ver": SOFTWARE_VER,
+            "debugInfo": DEBUG_INFO,
+        }
+
+    @classmethod
     def ssl_query_media_status(cls, username: str, device_uid: str):
         """Query the property list used by the official MixPad music screen."""
         return {

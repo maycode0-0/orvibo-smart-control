@@ -22,12 +22,14 @@
 类型 `128` 的背景音乐主机提供 `media_player.media_play`、`media_pause`、
 `media_previous_track`、`media_next_track`、`volume_set`、`volume_mute` 与 `media_seek`。
 音量使用 HA 的 `volume_level: 0..1`，跳转使用 `seek_position` 秒；内部转换为百分比和毫秒。
-这些动作使用默认结合模式或纯云端模式，不新增集成专用服务；任意 URL 播放和音源选择不支持。
+这些动作使用默认结合模式或纯云端模式。文字播报另用下述 `speak` 服务；任意音频 URL、
+文件和音源选择不支持，实体没有 `PLAY_MEDIA`，不能作为 `tts.speak` 的播放目标。
 
 ## 服务总览
 
 | 服务                   | 用途                           | 响应                                  |
 | ---------------------- | ------------------------------ | ------------------------------------- |
+| `speak`                | 更新专用场景文字并触发 MixPad 播报 | `stage`、`scene_no`                  |
 | `refresh_devices`      | 立即刷新指定配置项的设备快照   | 无                                    |
 | `set_lock_user_name`   | 设置或清除门锁用户编号的显示名 | 无                                    |
 | `fetch_video`          | 拉取并归档一个门锁事件录像     | `ok`、`media_id` 或 `error`           |
@@ -47,6 +49,25 @@
 
 带响应的服务使用 Home Assistant 的可选响应机制。自动化需要读取结果时，设置
 `response_variable`。
+
+## MixPad 文字播报
+
+先在智家365 App 创建名称唯一的专用场景（例如“HA语音播报”），只添加目标 MixPad
+的一条“语音播报”动作，并手动执行确认能发声。随后调用：
+
+```yaml
+action: orvibo_smart_control.speak
+data:
+  scene_name: HA语音播报
+  message: 欢迎回家
+```
+
+多配置项时必须填写 `entry_id`。`scene_name` 按原名精确匹配；文字非空且最多 300 字，
+支持中文、英文字母、数字、空白及 `，。！？,.!?`，沿用 App 普通播报编辑器限制。
+App 场景会保留最后一次文字；需要默认结合模式或纯云端模式。
+返回 `speech_scene_executed` 表示云端确认触发，不证明面板已经发声。失败会抛出 HA 错误，
+不自动重试；遇到执行超时先检查面板，避免手动重试造成重复播报。
+完整准备与限制见 [文字播报指南](mixpad-audio-playback.md)。
 
 ## 视频诊断与录像回放
 
