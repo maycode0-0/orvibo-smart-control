@@ -238,7 +238,9 @@ class HttpsClient:
                 return True
         return False
 
-    async def _readtable(self, device_flag: int) -> Optional[Dict[str, Any]]:
+    async def _readtable(
+        self, device_flag: int, *, strict: bool = False,
+    ) -> Optional[Dict[str, Any]]:
         """发送一次 readtable 请求并返回合并后的数据字典"""
         ret = HomemateJsonData.get_devices_status(
             access_token=self.access_token,
@@ -251,8 +253,18 @@ class HttpsClient:
         )
         resp = await self._send_request(ret['url'], ret['data'])
 
+        if strict:
+            from .speech import validate_complete_readtable
+
+            if not isinstance(resp, dict):
+                return None
+            validate_complete_readtable(resp)
+
         if "message" in resp:
-            _LOGGER.error(f"readtable(deviceFlag={device_flag}) 失败: {resp['message']}")
+            if strict:
+                _LOGGER.error("读取播报场景配置被拒绝")
+            else:
+                _LOGGER.error(f"readtable(deviceFlag={device_flag}) 失败: {resp['message']}")
             return None
         if "data" not in resp:
             _LOGGER.error(f"readtable(deviceFlag={device_flag}) 响应包中未找到[data]")
@@ -265,19 +277,44 @@ class HttpsClient:
             merged: Dict[str, Any] = {}
             for element in data:
                 if not isinstance(element, dict):
+                    if strict:
+                        return None
                     continue
+                if strict:
+                    validate_complete_readtable(element)
                 for key, value in element.items():
                     if key not in merged:
                         merged[key] = value
                     elif isinstance(merged[key], list) and isinstance(value, list):
                         merged[key] = merged[key] + value
                     elif isinstance(merged[key], dict) and isinstance(value, dict):
+                        if strict and merged[key].keys() & value.keys():
+                            return None
                         merged[key] = {**merged[key], **value}
+                    elif strict:
+                        return None
             data = merged
 
         _LOGGER.info(f"readtable(deviceFlag={device_flag}) 数据keys: "
                      f"{list(data.keys()) if isinstance(data, dict) else 'not a dict'}")
         return data if isinstance(data, dict) else None
+
+    async def fetch_speech_table(self) -> Optional[Dict[str, Any]]:
+        """Read fresh scene tables without caching or logging speech content."""
+        try:
+            if not await self.ensure_login():
+                return None
+            data = await self._readtable(device_flag=0, strict=True)
+            if data is None:
+                return None
+            if "scene" not in data or "sceneBind" not in data:
+                extra = await self._readtable(device_flag=1, strict=True)
+                if extra:
+                    data = {**data, **extra}
+            return data
+        except (aiohttp.ClientError, OSError, ValueError, TypeError):
+            _LOGGER.warning("读取播报场景配置失败")
+            return None
 
     async def fetch_device_status(self) -> Optional[Dict[str, Any]]:
         """通过 /v2/cmd/app/readtable API 获取设备状态列表

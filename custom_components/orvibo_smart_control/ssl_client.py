@@ -74,6 +74,8 @@ class SSLClient:
         self.HEARTBEAT_MAX_FAILURES = 2
 
         self._pending_requests = PendingRequests()
+        self._speech_request_lock = asyncio.Lock()
+        self._speech_request_identity: dict | None = None
         self._meari_request_identity: dict | None = None
         # 控制响应超时（秒）
         self._control_response_timeout: float = 3.0
@@ -392,6 +394,65 @@ class SSLClient:
         )
         await self._send_packet(payload, self.session_key)
         return True
+
+    async def update_speech_scene(self, scene_no: str, binding: dict) -> bool:
+        """Wait for the cloud to acknowledge the stored speech-text update."""
+        return await self._send_speech_scene_request(
+            HomemateJsonData.ssl_update_speech_scene(
+                self.username, scene_no, binding,
+            )
+        )
+
+    async def execute_speech_scene(self, scene_no: str, scene_id: int | None) -> bool:
+        """Trigger a saved scene once; never replay an uncertain result."""
+        return await self._send_speech_scene_request(
+            HomemateJsonData.ssl_execute_speech_scene(
+                self.username, scene_no, scene_id,
+            )
+        )
+
+    async def _send_speech_scene_request(
+        self, payload: dict, timeout: float = 10.0,
+    ) -> bool:
+        async with self._speech_request_lock:
+            if not await self.connect_and_login():
+                raise ConnectionError("speech cloud connection unavailable")
+            if not self.session_key or self.session_key == DEFAULT_KEY.encode("utf-8"):
+                raise ConnectionError("speech cloud session unavailable")
+            identity = {
+                field: payload[field]
+                for field in ("cmd", "serial", "uniSerial", "sceneNo")
+            }
+            future = self._pending_requests.register("speech_scene")
+            self._speech_request_identity = identity
+            try:
+                await self._send_packet(payload, self.session_key)
+                result = await self._pending_requests.wait(
+                    "speech_scene", future, timeout,
+                )
+                if result is None:
+                    raise ConnectionError("speech scene response unavailable")
+                # A completed socket write is not an acknowledged scene action.
+                status = result.get("status")
+                return type(status) is int and status == 0 or (
+                    isinstance(status, str) and status == "0"
+                )
+            finally:
+                self._speech_request_identity = None
+                self._pending_requests.discard("speech_scene", future)
+
+    def _handle_speech_scene_response(self, data: dict) -> bool:
+        identity = self._speech_request_identity
+        if identity is None or data.get("cmd") != identity["cmd"]:
+            return False
+        # Require a request identifier and reject conflicting echoed fields.
+        # A delayed ACK must never authorize a later utterance's execution.
+        if not any(data.get(field) is not None for field in ("serial", "uniSerial")):
+            return False
+        for field in ("serial", "uniSerial", "sceneNo"):
+            if data.get(field) is not None and str(data[field]) != str(identity[field]):
+                return False
+        return self._pending_requests.resolve("speech_scene", data)
 
     async def send_media_status_query(self, device_uid: str) -> bool:
         """Request the official app's MixPad music property set."""
@@ -1031,6 +1092,9 @@ class SSLClient:
                 elif cmd == CMD_MUSIC_CONTROL:
                     if not self._handle_media_status_response(data):
                         _LOGGER.debug("收到无音乐状态的 cmd=289 响应 status=%s", data.get("status"))
+                elif cmd in (195, 197):
+                    if not self._handle_speech_scene_response(data):
+                        _LOGGER.debug("收到未匹配的场景响应 cmd=%s", cmd)
                 elif cmd == CMD_STATE_UPDATE:
                     await self._handle_state_update(data)
                 elif cmd == CMD_CLOTHES_HORSE_STATE:

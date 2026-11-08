@@ -243,6 +243,36 @@
         }
     },
     "exceptions": {
+      "speech_select_entry": {
+        "message": "请选择一个 ORVIBO 配置项；有多个配置项时必须填写 entry_id。"
+      },
+      "speech_invalid_message": {
+        "message": "请输入1至300字播报文字，支持中文、英文字母、数字、空白及，。！？,.!?标点，与App规则一致；不会自动截断。"
+      },
+      "speech_invalid_scene": {
+        "message": "请填写智家365中专用播报场景的完整名称。"
+      },
+      "speech_scene_not_found": {
+        "message": "当前家庭中未找到指定的专用播报场景。"
+      },
+      "speech_ambiguous_scene": {
+        "message": "场景名称或编号不唯一，请为专用播报场景设置唯一名称。"
+      },
+      "speech_unsafe_scene": {
+        "message": "请使用仅包含一条普通 MixPad 语音播报动作的专用场景；存在其他动作或场景数据不完整时无法播报。"
+      },
+      "speech_cloud_unavailable": {
+        "message": "场景播报需要云端控制，请使用 LAN 与云端结合或纯云端模式，并检查连接。"
+      },
+      "speech_read_failed": {
+        "message": "未能读取完整场景配置，本次未下发播报指令。"
+      },
+      "speech_update_failed": {
+        "message": "播报文字修改未获得成功确认，未触发场景；App 中的文字可能已经更新。"
+      },
+      "speech_execute_failed": {
+        "message": "场景执行未获得成功确认；修改后的文字会保留，请先检查面板再重试，以免重复播报。"
+      },
         "media_control_failed": {
             "message": "音乐控制指令未能发送，请检查云端连接和 ORVIBO 集成日志。"
         }

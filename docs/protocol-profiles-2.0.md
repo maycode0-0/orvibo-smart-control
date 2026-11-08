@@ -55,7 +55,16 @@ b9 进一步核对 `com.orvibo.homemate.model.device.music.a` 的构造器，确
 Evidence 为 `ev_fbb271391886c08aa4d3ab806b62227c4c15c158f9fa21390b432a301c398a64`。
 此前 b8 将正文套入普通设备 `cmd=15` 是实现错误；b9 同时修正发送、查询和接收分发。
 云端非零错误状态不进入音乐状态解析；发送失败通过媒体实体抛出 HA 可见错误。
-本轮只有用户失败反馈、静态证据和离线回归，不包含修复后真机成功验证。
+后续真机反馈：2026-11-08 用户确认 MixPad 7 Ultra / QQ 音乐在 b9 中已能正常播放。
+这只验证该设备与音源的播放路径，不扩展为所有音乐控制或其他型号均已验证；
+音乐主机类别统一的 `hardware_verified` 仍为 false。任意音频 URL 和文件格式
+尚未建立，不声明 `PLAY_MEDIA` 能力。
+
+b10 通过独立 `speak` 服务实现专用场景动态文字：读取完整 `scene/sceneBind`，
+确认唯一名称且仅含一个普通 `tts play` 动作，保留绑定字段并以 `cmd=195` 修改
+`actionName`，再用 `cmd=197`、`triggerType=0` 触发 `sceneNo`；有效 `sceneId` 可选。
+两个写入均等待关联成功响应，不重试不确定写入。文字持久保存，HA 调用尚待真机验证。
+REA 方法、300 字编辑器规则与 Dart 歌曲模型见 [文字播报与协议证据](mixpad-audio-playback.md)。
 
 ### 调光与 RF
 

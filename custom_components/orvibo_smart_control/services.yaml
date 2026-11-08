@@ -1,3 +1,30 @@
+speak:
+  name: MixPad 文字播报
+  description: 更新指定专用场景中的语音播报文字后执行；场景只能有一条语音动作，App 会保留最后一次文字
+  fields:
+    entry_id:
+      name: 配置项 ID
+      description: 多个集成配置项时必须填写
+      required: false
+      selector:
+        config_entry:
+          integration: orvibo_smart_control
+    scene_name:
+      name: 专用场景名称
+      description: 智家365中仅包含一条MixPad语音播报动作的场景名称，必须唯一
+      required: true
+      example: HA语音播报
+      selector:
+        text:
+    message:
+      name: 播报文字
+      description: 最多300字，支持中文、英文、数字、空白及，。！？,.!?；每次调用会更新场景文字
+      required: true
+      example: 这是一条测试播报
+      selector:
+        text:
+          multiline: true
+
 refresh_devices:
   name: 刷新设备快照
   description: 立即刷新指定配置项的云端设备库存和状态快照

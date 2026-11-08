@@ -331,6 +331,27 @@ class CoordinatorTransportTests(unittest.TestCase):
         adapter_args, _ = self.module.TestLanControlAdapter.last_call
         self.assertEqual(adapter_args[0], "mixpad-user")
 
+    def test_speech_requires_cloud_and_does_not_read_in_lan_only(self):
+        for mode in (self.module.TransportMode.LAN_ONLY, self.module.TransportMode.AUTO):
+            coordinator = self.make_coordinator(mode)
+            coordinator.speech.speak = AsyncMock()
+            with self.assertRaises(self.module.SpeechError) as caught:
+                asyncio.run(coordinator.async_speak("speech", "hello"))
+            self.assertEqual(caught.exception.stage, "cloud_unavailable")
+            coordinator.speech.speak.assert_not_awaited()
+
+    def test_speech_does_not_change_music_state(self):
+        coordinator = self.make_coordinator(self.module.TransportMode.AUTO)
+        coordinator.ssl_client = object()
+        coordinator.device_states["music"] = {"media_state": "playing", "volume": 25}
+        coordinator.speech.speak = AsyncMock(return_value={"stage": "speech_scene_executed"})
+        result = asyncio.run(coordinator.async_speak("speech", "hello"))
+        self.assertEqual(result["stage"], "speech_scene_executed")
+        coordinator.speech.speak.assert_awaited_once_with("speech", "hello")
+        self.assertEqual(coordinator.device_states["music"], {
+            "media_state": "playing", "volume": 25,
+        })
+
 
 if __name__ == "__main__":
     unittest.main()

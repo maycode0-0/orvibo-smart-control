@@ -30,6 +30,7 @@ SERVICE_CLEANUP_HISTORY = "cleanup_history"
 SERVICE_GRANT_TEMP_PASSWORD = "grant_temp_password"
 SERVICE_REVOKE_TEMP_PASSWORD = "revoke_temp_password"
 SERVICE_LIST_TEMP_PASSWORDS = "list_temp_passwords"
+SERVICE_SPEAK = "speak"
 
 
 def _targets(hass: HomeAssistant, entry_id: object) -> list[Any]:
@@ -83,6 +84,44 @@ def _public_authorizations(result: dict[str, Any]) -> dict[str, Any]:
 
 async def async_register_services(hass: HomeAssistant) -> None:
     """Register integration services once during domain setup."""
+
+    async def handle_speak(call: ServiceCall) -> dict[str, Any]:
+        from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+
+        from .speech import SpeechError
+
+        entry_id = call.data.get("entry_id")
+        if entry_id is not None and (
+            not isinstance(entry_id, str) or not entry_id.strip()
+        ):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="speech_select_entry",
+            )
+        targets = _targets(hass, entry_id)
+        if len(targets) != 1:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN, translation_key="speech_select_entry",
+            )
+        try:
+            return await targets[0].async_speak(
+                call.data.get("scene_name"), call.data.get("message"),
+            )
+        except SpeechError as err:
+            error_type = (
+                HomeAssistantError
+                if err.stage in {
+                    "cloud_unavailable", "read_failed", "update_failed", "execute_failed",
+                }
+                else ServiceValidationError
+            )
+            raise error_type(
+                translation_domain=DOMAIN, translation_key=f"speech_{err.stage}",
+            ) from None
+
+    hass.services.async_register(
+        DOMAIN, SERVICE_SPEAK, handle_speak,
+        supports_response=SupportsResponse.OPTIONAL,
+    )
 
     async def handle_inspect_video_session(
         call: ServiceCall, *, inspect_devices: bool = False, inspect_channels: bool = False,
