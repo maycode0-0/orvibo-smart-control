@@ -16,7 +16,7 @@ def _module(name, **values):
     return module
 
 
-def _load_modules():
+def _load_modules(*, include_dispatcher=False):
     name = "orvibo_smart_control_light_entity_test"
     package = _module(name)
     package.__path__ = [str(
@@ -55,13 +55,16 @@ def _load_modules():
         light = importlib.import_module(f"{name}.light")
         inventory = importlib.import_module(f"{name}.device_inventory")
         protocol = importlib.import_module(f"{name}.protocol")
+        dispatcher = importlib.import_module(f"{name}.status_dispatcher")
+    if include_dispatcher:
+        return light, inventory, protocol, dispatcher
     return light, inventory, protocol
 
 
 class LightTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.light, cls.inventory, cls.protocol = _load_modules()
+        cls.light, cls.inventory, cls.protocol, cls.dispatcher = _load_modules(include_dispatcher=True)
 
     def make_entity(self, state, device_type=503, subtype=436):
         coordinator = SimpleNamespace(get_device_state=lambda _: state)
@@ -115,6 +118,57 @@ class LightTests(unittest.TestCase):
         inventory.merge_cloud([device])
         self.assertTrue(entity.is_on)
         self.assertEqual(entity.brightness, 204)
+
+    def test_readtable_light_count_uses_power_instead_of_retained_brightness(self):
+        for device_type, subtype in ((38, -2), (38, 6), (0, -2), (116, -2), (503, 436)):
+            with self.subTest(device_type=device_type, subtype=subtype):
+                payload = {"data": {
+                    "device": [{"deviceId": f"lamp-{i}", "deviceType": device_type,
+                                "subDeviceType": subtype} for i in range(9)],
+                    "deviceStatus": [{"deviceId": f"lamp-{i}", "online": 1,
+                                      "value1": 0, "value2": 13,
+                                      "properties": {"onoff": {"status": "on" if i < 4 else "off"}}}
+                                     for i in range(9)],
+                }}
+                devices = [self.protocol.device_to_dict(device)
+                           for device in self.protocol.parse_readtable_devices(payload)]
+                states = {}
+                inventory = self.inventory.DeviceInventory(
+                    None, {}, states, self.inventory.StateStore(states), lambda _: None,
+                )
+                inventory.initialize(devices)
+                coordinator = SimpleNamespace(get_device_state=states.get)
+                entities = [self.light.OrviboLight(coordinator, device) for device in devices]
+                self.assertEqual(sum(entity.is_on for entity in entities), 4)
+                # A cloud refresh must also correct previously cached false positives.
+                for state in states.values():
+                    state["state"] = True
+                inventory.merge_cloud(devices)
+                self.assertEqual(sum(entity.is_on for entity in entities), 4)
+                self.assertTrue(all(entity.brightness is None for entity in entities[4:]))
+                self.assertTrue(all(state["brightness"] == 13 for state in states.values()))
+
+    def test_property_off_push_then_brightness_push_keeps_light_off(self):
+        for device_type, subtype in ((38, -2), (38, 6), (0, -2), (116, -2), (503, 436)):
+            with self.subTest(device_type=device_type, subtype=subtype):
+                device = {"device_id": "lamp", "device_type_raw": device_type,
+                          "sub_device_type": subtype}
+                states = {"lamp": {"state": True, "brightness": 13}}
+                dispatcher = self.dispatcher.StatusUpdateDispatcher(
+                    {"lamp": device}, states, self.inventory.StateStore(states), {}, [],
+                    on_motion=lambda *args: None, on_emergency=lambda *args: None,
+                    on_lock_transient=lambda *args: None, on_lock_message=lambda *args: None,
+                    on_lock_event=lambda *args: None, on_updated=lambda: None,
+                )
+                entity = self.light.OrviboLight(SimpleNamespace(get_device_state=states.get), device)
+                dispatcher.dispatch("lamp", {"properties": {"onoff": {"status": "off"}}})
+                self.assertFalse(entity.is_on)
+                dispatcher.dispatch("lamp", {"properties": {"brightness": {"percent": 5}}})
+                self.assertFalse(entity.is_on)
+                self.assertIsNone(entity.brightness)
+                dispatcher.dispatch("lamp", {"properties": {"onoff": {"status": "on"}}})
+                self.assertTrue(entity.is_on)
+                self.assertGreater(entity.brightness, 0)
 
 
 if __name__ == "__main__":

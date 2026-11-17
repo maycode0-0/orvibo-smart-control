@@ -19,16 +19,20 @@ def parse_light(
 ) -> StatePatch:
     """Parse an on/off light using properties first, then legacy value1."""
 
-    props = raw_status.get("properties", {})
+    props = raw_status.get("properties") or {}
     onoff_obj = props.get("onoff", {})
-    if isinstance(onoff_obj, dict) and onoff_obj.get("status"):
+    if isinstance(onoff_obj, dict) and onoff_obj.get("status") in ("on", "off"):
         state = onoff_obj.get("status") == "on"
-    elif isinstance(props.get("onoff_status"), str):
+    elif props.get("onoff_status") in ("on", "off"):
         state = props["onoff_status"] == "on"
-    elif raw_status.get("value1") is not None:
-        state = int(raw_status["value1"]) == 0
     else:
-        return StatePatch({})
+        value1 = raw_status.get("value1")
+        if isinstance(value1, dict):
+            value1 = value1.get("value")
+        # Missing/sentinel fields in a partial report are not power changes.
+        if isinstance(value1, bool) or value1 not in (0, 1, "0", "1"):
+            return StatePatch({})
+        state = int(value1) == 0
     return StatePatch({"state": state})
 
 
@@ -91,24 +95,11 @@ def parse_dim_color_light(
     if color_temp is not None:
         color_temp = min(6500, max(2700, color_temp))
 
-    value1 = raw_status.get("value1")
-    if isinstance(value1, dict):
-        value1 = value1.get("value")
-    if value1 is not None:
-        try:
-            state = int(value1) == 0
-        except (TypeError, ValueError):
-            state = None
-    else:
-        onoff_obj = props.get("onoff", {})
-        if isinstance(onoff_obj, dict) and onoff_obj.get("status"):
-            state = onoff_obj.get("status") == "on"
-        elif brightness is not None:
-            state = brightness > 0
-        else:
-            state = None
-
-    updates = {"state": state} if state is not None else {}
+    updates = dict(parse_light(current_state, raw_status).values)
+    # A nonzero level may be remembered while the light is off. Only an
+    # explicit power report can turn it on; preserve the zero-level fallback.
+    if brightness == 0 and "state" not in updates:
+        updates["state"] = False
     if brightness is not None:
         updates["brightness"] = brightness
     if color_temp is not None:
@@ -121,13 +112,9 @@ def parse_fast_move_dim_color_light(
 ) -> StatePatch:
     """Parse a Fast Move value1/value2/value3 light packet."""
 
-    updates: dict[str, Any] = {}
-    value1 = raw_status.get("value1")
+    updates = dict(parse_light(current_state, raw_status).values)
     brightness = _legacy_brightness(raw_status)
     color_temp = _positive_int(raw_status.get("value3"))
-
-    if value1 is not None:
-        updates["state"] = int(value1) == 0
 
     if brightness is not None:
         updates["brightness"] = brightness
@@ -153,14 +140,9 @@ def parse_dimmable_light(
 ) -> StatePatch:
     """Parse a property-based dimmable light."""
 
-    props = raw_status.get("properties", {})
-    updates: dict[str, Any] = {}
-    onoff_obj = props.get("onoff", {})
-    if isinstance(onoff_obj, dict) and onoff_obj.get("status"):
-        updates["state"] = onoff_obj.get("status") == "on"
-    elif raw_status.get("value1") in (0, 1, "0", "1"):
-        updates["state"] = int(raw_status["value1"]) == 0
-    elif "state" not in current_state:
+    props = raw_status.get("properties") or {}
+    updates = dict(parse_light(current_state, raw_status).values)
+    if "state" not in updates and "state" not in current_state:
         updates["state"] = False
 
     brightness = normalize_brightness(_property_brightness(props), 100)
@@ -176,12 +158,8 @@ def parse_zigbee_dimmable_light(
 ) -> StatePatch:
     """Parse an active-low value-based 0-10V dimmable light."""
 
-    updates: dict[str, Any] = {}
-    value1 = raw_status.get("value1")
+    updates = dict(parse_light(current_state, raw_status).values)
     brightness = _legacy_brightness(raw_status)
-
-    if value1 is not None:
-        updates["state"] = int(value1) == 0
     if brightness is not None:
         updates["brightness"] = brightness
         if brightness == 0:
