@@ -152,6 +152,78 @@ class StateParserTests(unittest.TestCase):
         self.assertTrue(on.values["state"])
         self.assertFalse(off.values["state"])
 
+    def test_light_power_properties_override_legacy_power_and_retained_level(self):
+        for parser in (
+            self.light.parse_light,
+            self.light.parse_dim_color_light,
+            self.light.parse_fast_move_dim_color_light,
+            self.light.parse_zigbee_dimmable_light,
+            self.light.parse_dimmable_light,
+            self.light.parse_cct_light,
+        ):
+            for power, expected, legacy in (("off", False, 0), ("on", True, 1)):
+                for props in ({"onoff": {"status": power}}, {"onoff_status": power}):
+                    with self.subTest(parser=parser.__name__, props=props):
+                        raw = {"value1": legacy, "value2": 13, "properties": props}
+                        patch = parser({"state": not expected}, raw)
+                        self.assertIs(patch.values["state"], expected)
+
+    def test_light_brightness_only_update_does_not_infer_power(self):
+        for parser in (
+            self.light.parse_dim_color_light,
+            self.light.parse_fast_move_dim_color_light,
+            self.light.parse_zigbee_dimmable_light,
+            self.light.parse_dimmable_light,
+            self.light.parse_cct_light,
+        ):
+            for power in (False, True):
+                for raw in ({"value2": 13}, {"properties": {"brightness": {"percent": 5}}}):
+                    with self.subTest(parser=parser.__name__, power=power, raw=raw):
+                        state = {"state": power, "brightness": 80}
+                        patch = parser(state, raw)
+                        self.assertNotIn("state", patch.values)
+                        patch.apply_to(state)
+                        self.assertIs(state["state"], power)
+
+    def test_legacy_light_property_only_off_push_updates_power(self):
+        for parser in (
+            self.light.parse_dim_color_light,
+            self.light.parse_fast_move_dim_color_light,
+            self.light.parse_zigbee_dimmable_light,
+        ):
+            with self.subTest(parser=parser.__name__):
+                state = {"state": True, "brightness": 13}
+                parser(state, {"properties": {"onoff": {"status": "off"}}}).apply_to(state)
+                self.assertEqual(state, {"state": False, "brightness": 13})
+
+    def test_partial_light_reports_ignore_invalid_power_fields(self):
+        for parser in (
+            self.light.parse_light,
+            self.light.parse_dim_color_light,
+            self.light.parse_fast_move_dim_color_light,
+            self.light.parse_zigbee_dimmable_light,
+            self.light.parse_dimmable_light,
+            self.light.parse_cct_light,
+        ):
+            for value in (None, -1, "-1", 2, "unknown", {}, True, 0.5):
+                with self.subTest(parser=parser.__name__, value=value):
+                    for power in (False, True):
+                        state = {"state": power}
+                        patch = parser(state, {"value1": value, "properties": {
+                            "onoff": {"status": "unknown"}, "onoff_status": "unknown",
+                        }})
+                        self.assertNotIn("state", patch.values)
+                        patch.apply_to(state)
+                        self.assertIs(state["state"], power)
+
+    def test_dim_color_wrapped_power_and_zero_brightness_remain_supported(self):
+        for value, expected in ((0, True), (1, False), ("0", True), ("1", False)):
+            with self.subTest(value=value):
+                patch = self.light.parse_dim_color_light({}, {"value1": {"value": value}})
+                self.assertIs(patch.values["state"], expected)
+        patch = self.light.parse_dim_color_light({"state": True}, {"value2": 0})
+        self.assertEqual(patch.values, {"state": False, "brightness": 0})
+
     def test_dim_color_light_accepts_property_brightness_percent_dict(self) -> None:
         patch = self.light.parse_dim_color_light(
             {},
