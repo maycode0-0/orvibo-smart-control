@@ -65,6 +65,9 @@ data:
 多配置项时必须填写 `entry_id`。`scene_name` 按原名精确匹配；文字非空且最多 300 字，
 支持中文、英文字母、数字、空白及 `，。！？,.!?`，沿用 App 普通播报编辑器限制。
 App 场景会保留最后一次文字；需要默认结合模式或纯云端模式。
+当前 `Unreleased` 在更新 ACK 后回读场景，文字、目标或动作不一致时停止执行。
+成功响应包含 `freshness_revision=2`、`update_ack_revision=1`、`update_ack` 和
+`timing_ms`；`cloud_text_verified` 仅表示云端配置一致，`panel_sound_verified` 仍为 false。
 返回 `speech_scene_executed` 表示云端确认触发，不证明面板已经发声。失败会抛出 HA 错误，
 不自动重试；遇到执行超时先检查面板，避免手动重试造成重复播报。
 完整准备与限制见 [文字播报指南](mixpad-audio-playback.md)。

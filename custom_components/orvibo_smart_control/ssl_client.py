@@ -10,6 +10,7 @@ from .protocol import normalize_password_hash
 from .ssl_transport import SSLTransport, TlsFiles
 from .pending_requests import PendingRequests
 from .meari_session import CMD_MEARI_SESSION, build_session_request
+from .speech import SpeechUpdateResult, summarize_update_ack
 
 from .const import (
     CLIENT_CERT, CLIENT_KEY, SERVER_CA, ID_UNSET, DEFAULT_KEY,
@@ -395,13 +396,14 @@ class SSLClient:
         await self._send_packet(payload, self.session_key)
         return True
 
-    async def update_speech_scene(self, scene_no: str, binding: dict) -> bool:
-        """Wait for the cloud to acknowledge the stored speech-text update."""
-        return await self._send_speech_scene_request(
+    async def update_speech_scene(self, scene_no: str, binding: dict) -> SpeechUpdateResult:
+        """Check both the correlated status and any reported action results."""
+        response = await self._send_speech_scene_request(
             HomemateJsonData.ssl_update_speech_scene(
                 self.username, scene_no, binding,
-            )
+            ), return_response=True,
         )
+        return summarize_update_ack(response, binding)
 
     async def execute_speech_scene(self, scene_no: str, scene_id: int | None) -> bool:
         """Trigger a saved scene once; never replay an uncertain result."""
@@ -412,8 +414,8 @@ class SSLClient:
         )
 
     async def _send_speech_scene_request(
-        self, payload: dict, timeout: float = 10.0,
-    ) -> bool:
+        self, payload: dict, timeout: float = 10.0, *, return_response: bool = False,
+    ) -> bool | dict:
         async with self._speech_request_lock:
             if not await self.connect_and_login():
                 raise ConnectionError("speech cloud connection unavailable")
@@ -432,6 +434,8 @@ class SSLClient:
                 )
                 if result is None:
                     raise ConnectionError("speech scene response unavailable")
+                if return_response:
+                    return result
                 # A completed socket write is not an acknowledged scene action.
                 status = result.get("status")
                 return type(status) is int and status == 0 or (

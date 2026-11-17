@@ -1,5 +1,14 @@
 # Changelog
 
+## [2.0.0b12] - 2026-11-17
+
+### MixPad 场景播报确认
+
+- 同步此前交付的 `speech.py` / `ssl_client.py` 播报补丁（freshness revision 2、update ACK revision 1）。检查 cmd195 的整体状态及可选动作成功/失败列表；回包未提供成功列表时明确标记为未确认动作级结果。
+- 更新后立即回读云端场景，要求实际文字、目标和动作字段一致，再使用读回的 sceneId 执行一次 cmd197。回读失败、旧文字或目标变化时停止执行，不增加固定等待、写入重试或执行重试。
+- 服务返回请求编号、脱敏 ACK 摘要及分阶段耗时；`cloud_text_verified` 仅表示云端配置一致，`panel_sound_verified=false` 不代表实际听音验证。此前用户反馈两条连续的独立播报内容正确，旧音频问题的根因和长期稳定性仍不能据此确定。
+- Validation: 75 speech/SSL regression tests pass on Python 3.12. The full 970-test run had five video failures: two require a newer FFmpeg (also fail on unchanged upstream), and three process-timing cases pass on both the upstream baseline and a targeted rerun of this checkout. No hardware test was performed during synchronization.
+
 ## [Unreleased]
 
 ## [2.0.0b11] - 2026-11-17
