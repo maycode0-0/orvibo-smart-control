@@ -1,7 +1,7 @@
 # ORVIBO Smart Control
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![Version](https://img.shields.io/badge/version-2.0.0b10-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
+[![Version](https://img.shields.io/badge/version-2.0.0b11-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
 
 ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。它把 MixPad
 网关局域网直连与 ORVIBO 云端协议放在同一条设备、状态和控制链路中：能在 LAN
@@ -10,13 +10,11 @@ ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。�
 ## 2.0 版本
 
 `2.0.0b0` 基于 `0.2.6b17`，开启 `2.0` 版本线，包含基于 HomeMate 5.2.6.307
-逆向证据的协议重构。当前 `2.0.0b10` 增加 MixPad 专用场景动态文字播报；
-继承 b9 的音乐控制修复、b8 的背景音乐实体、b7 的实时视频
-持续丢包恢复、b6 的摄像机
-共享读取、通道补发现和卡片启动恢复，以及 b5 的可选流畅画质、b4 的解析 CPU 优化、b3 的首次连接恢复与
-503 诊断，以及 b2 的开门记录。
+逆向证据的协议重构。当前 `2.0.0b11` 修复已关闭灯具仍被计为开启的问题：读取明确的
+开关状态，保留记忆亮度，仅有非零亮度的更新不会打开灯光实体。本版继承 b10 的
+MixPad 动态文字播报及之前的音乐、视频和门锁功能。
 开发分支仍为 `2.0`，具体变更见
-[发布说明](docs/releases/2.0.0b10.md) 与 [CHANGELOG](CHANGELOG.md)。
+[发布说明](docs/releases/2.0.0b11.md) 与 [CHANGELOG](CHANGELOG.md)。
 
 本次统一类型 `0`、`116` 和其中虚拟 MixPad 调光器的亮度编码、回读及状态单位；
 为明确标记为 RF 的 `34/35` 窗帘提供开、关、停，不提供位置滑块或猜测的关闭状态。
@@ -74,7 +72,7 @@ LAN > 云端实时推送（SSL）> 云端快照（REST）> 乐观状态 > 初始
 ### 摄像机与录像机实时画面
 
 从 `0.2.6b4` 起，为匹配成功的 Meari XTS/p2p=2 摄像机及录像机在线通道创建 `camera` 实体。
-在市场/HACS 更新到 `v2.0.0b10` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
+在市场/HACS 更新到 `v2.0.0b11` 并重启 Home Assistant，进入录像机设备页面，打开“通道 1”或
 “通道 3”等摄像头实体；也可把实体加入图片概览卡片并设置 `camera_view: live`。
 HAOS 使用自带 FFmpeg，无需单独安装视频服务。首次连接需要获取授权和建立设备连接，
 可能需要数十秒；首次缩略图超时后再次打开即可复用正在建立的连接。
@@ -347,8 +345,8 @@ custom_components/orvibo_smart_control/
 项目使用标准库 `unittest` 运行不依赖完整 Home Assistant 的测试，并由 CI 执行语法、
 身份、HACS 和 hassfest 校验。参与开发前请阅读 [贡献指南](CONTRIBUTING.md)。
 
-`2.0.0b7` 的 Python 3.12 全量离线测试 890 项通过、无跳过，包含真实 FFmpeg 转码与
-PyAV 连续解码；自动化结果不代替新协议分支和本版修复的真机验证。详细边界见发布说明。
+`2.0.0b11` 的 Python 3.12 全量离线测试 951 项通过、无跳过，包含真实 FFmpeg 转码与
+PyAV 连续解码；灯光数量和开关状态仍需升级后核对。详细结果见发布说明。
 
 ## 文档索引
 
