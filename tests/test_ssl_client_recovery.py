@@ -20,6 +20,8 @@ def _load_client_module():
     sys.modules[package_name] = package
     # Keep cryptography's native modules loaded outside the temporary HA stubs.
     importlib.import_module(f"{package_name}.packet")
+    # Preserve one identity for the pure ACK result type across the HA stubs.
+    importlib.import_module(f"{package_name}.speech")
     homeassistant = types.ModuleType("homeassistant")
     homeassistant.__path__ = []
     core = types.ModuleType("homeassistant.core")

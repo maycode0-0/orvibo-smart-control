@@ -277,6 +277,15 @@ class SpeechManagerTests(unittest.IsolatedAsyncioTestCase):
         read = AsyncMock(return_value=sample_table() if table is None else table)
         update = AsyncMock(return_value=True)
         execute = AsyncMock(return_value=True)
+        async def cloud_read():
+            result = deepcopy(read.return_value)
+            if update.await_count:
+                scene_no, binding = update.call_args.args
+                for row in result.get("sceneBind", []):
+                    if row.get("sceneNo") == scene_no and row.get("sceneBindId") == binding["sceneBindId"]:
+                        row.update(binding)
+            return result
+        read.side_effect = cloud_read
         return speech.SpeechManager(read, update, execute), read, update, execute
 
     async def test_valid_request_updates_then_executes_without_text_in_result(self):
@@ -296,9 +305,18 @@ class SpeechManagerTests(unittest.IsolatedAsyncioTestCase):
         result = await manager.speak("HA播报", "门已打开")
         self.assertEqual(events, [("update", "scene-no", "门已打开"),
                                   ("execute", "scene-no", 7)])
-        self.assertEqual(result, {"stage": "speech_scene_executed", "scene_no": "scene-no"})
+        self.assertRegex(result["request_id"], r"^[0-9a-f]{12}$")
+        self.assertEqual(result["update_ack_revision"], 0)
+        self.assertEqual(result["update_ack"]["binding_confirmation"], "client_not_upgraded")
+        self.assertEqual(set(result["timing_ms"]), {"read", "update", "verify", "execute", "total"})
+        self.assertTrue(all(type(value) is int and value >= 0 for value in result["timing_ms"].values()))
+        basic_result = {key: value for key, value in result.items()
+                        if key not in ("request_id", "update_ack_revision", "update_ack", "timing_ms")}
+        self.assertEqual(basic_result, {"stage": "speech_scene_executed", "scene_no": "scene-no",
+                                 "freshness_revision": 2, "cloud_text_verified": True,
+                                 "scene_id_refreshed": False, "panel_sound_verified": False})
         self.assertNotIn("门已打开", repr(result))
-        read.assert_awaited_once_with()
+        self.assertEqual(read.await_count, 2)
         update.assert_awaited_once()
         execute.assert_awaited_once_with("scene-no", 7)
 
@@ -369,12 +387,14 @@ class SpeechManagerTests(unittest.IsolatedAsyncioTestCase):
         manager, read, update, execute = self.make_manager()
         changed = sample_table()
         changed["sceneBind"][0]["order"] = "on"
-        read.side_effect = [sample_table(), changed]
+        saved = sample_table()
+        saved["sceneBind"][0]["actionName"] = "第一条"
+        read.side_effect = [sample_table(), saved, changed]
         await manager.speak("HA播报", "第一条")
         with self.assertRaises(speech.SpeechError) as raised:
             await manager.speak("HA播报", "第二条")
         self.assertEqual(raised.exception.stage, "unsafe_scene")
-        self.assertEqual(read.await_count, 2)
+        self.assertEqual(read.await_count, 3)
         update.assert_awaited_once()
         execute.assert_awaited_once()
 
@@ -415,8 +435,8 @@ class SpeechManagerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events, ["read", ("update", "第一条")])
         release_first_update.set()
         await asyncio.gather(first, second)
-        self.assertEqual(events, ["read", ("update", "第一条"), ("execute", "第一条"),
-                                  "read", ("update", "第二条"), ("execute", "第二条")])
+        self.assertEqual(events, ["read", ("update", "第一条"), "read", ("execute", "第一条"),
+                                  "read", ("update", "第二条"), "read", ("execute", "第二条")])
         self.assertEqual(table["sceneBind"][0]["actionName"], "第二条")
 
     async def test_cancellation_is_propagated_without_execute_or_retry(self):
@@ -428,7 +448,101 @@ class SpeechManagerTests(unittest.IsolatedAsyncioTestCase):
         execute.assert_not_awaited()
         update.side_effect = None
         await manager.speak("HA播报", "下次仍可调用")
+        self.assertEqual(read.await_count, 3)
+        execute.assert_awaited_once()
+
+    async def test_acknowledged_but_stale_text_is_not_executed(self):
+        manager, read, update, execute = self.make_manager()
+        read.side_effect = [sample_table(), sample_table()]
+        with self.assertLogs(speech._LOGGER, level="WARNING") as logged:
+            with self.assertRaises(speech.SpeechError) as raised:
+                await manager.speak("HA播报", "新的播报文字")
+        self.assertEqual(raised.exception.stage, "update_failed")
+        self.assertIn("stage=readback_mismatch", " ".join(logged.output))
+        self.assertNotIn("新的播报文字", " ".join(logged.output))
+        self.assertNotIn("原来的文字", " ".join(logged.output))
+        update.assert_awaited_once()
+        execute.assert_not_awaited()
         self.assertEqual(read.await_count, 2)
+
+    async def test_execution_uses_latest_scene_id_after_matching_readback(self):
+        manager, read, update, execute = self.make_manager()
+        fresh = sample_table()
+        fresh["scene"][0]["sceneId"] = 42
+        fresh["sceneBind"][0].update(actionName="新的播报文字", updateTime=9999)
+        read.side_effect = [sample_table(), fresh]
+        result = await manager.speak("HA播报", "新的播报文字")
+        execute.assert_awaited_once_with("scene-no", 42)
+        self.assertTrue(result["scene_id_refreshed"])
+        self.assertTrue(result["cloud_text_verified"])
+        self.assertFalse(result["panel_sound_verified"])
+        self.assertNotIn("新的播报文字", repr(result))
+
+    async def test_scene_device_and_binding_changes_are_not_executed(self):
+        for field, value in (("sceneBindId", "other-binding"), ("deviceId", "other-device"),
+                             ("uid", "other-panel"), ("value2", 99), ("order", "on")):
+            manager, read, update, execute = self.make_manager()
+            fresh = sample_table()
+            fresh["sceneBind"][0].update(actionName="新文字", **{field: value})
+            read.side_effect = [sample_table(), fresh]
+            with self.subTest(field=field):
+                with self.assertRaises(speech.SpeechError) as raised:
+                    await manager.speak("HA播报", "新文字")
+                self.assertEqual(raised.exception.stage, "update_failed")
+                execute.assert_not_awaited()
+                update.assert_awaited_once()
+
+    async def test_replacement_scene_with_same_name_cannot_be_triggered(self):
+        manager, read, update, execute = self.make_manager()
+        fresh = sample_table()
+        fresh["scene"][0]["sceneNo"] = "new-scene"
+        fresh["sceneBind"][0].update(sceneNo="new-scene", actionName="新文字")
+        read.side_effect = [sample_table(), fresh]
+        with self.assertRaises(speech.SpeechError):
+            await manager.speak("HA播报", "新文字")
+        execute.assert_not_awaited()
+
+    async def test_unreadable_partial_or_unsafe_readback_does_not_execute(self):
+        for fresh in (None, {}, {"scene": []}, ConnectionError("PRIVATE"),
+                      {**sample_table(), "truncated": True}):
+            manager, read, update, execute = self.make_manager()
+            read.side_effect = [sample_table(), fresh]
+            with self.subTest(fresh=type(fresh).__name__):
+                with self.assertRaises(speech.SpeechError) as raised:
+                    await manager.speak("HA播报", "新文字")
+                self.assertEqual(raised.exception.stage, "update_failed")
+                self.assertNotIn("PRIVATE", str(raised.exception))
+                execute.assert_not_awaited()
+                update.assert_awaited_once()
+
+    async def test_cancellation_during_readback_is_not_retried_or_executed(self):
+        manager, read, update, execute = self.make_manager()
+        read.side_effect = [sample_table(), asyncio.CancelledError()]
+        with self.assertRaises(asyncio.CancelledError):
+            await manager.speak("HA播报", "新文字")
+        update.assert_awaited_once()
+        execute.assert_not_awaited()
+        self.assertEqual(read.await_count, 2)
+
+    async def test_readback_with_added_action_is_rejected(self):
+        manager, read, update, execute = self.make_manager()
+        fresh = sample_table()
+        fresh["sceneBind"][0]["actionName"] = "新文字"
+        extra = deepcopy(fresh["sceneBind"][0])
+        extra.update(sceneBindId="extra-action", order="on")
+        fresh["sceneBind"].append(extra)
+        read.side_effect = [sample_table(), fresh]
+        with self.assertRaises(speech.SpeechError):
+            await manager.speak("HA播报", "新文字")
+        execute.assert_not_awaited()
+
+    async def test_same_text_still_revalidates_and_executes_only_once(self):
+        table = sample_table()
+        table["sceneBind"][0]["actionName"] = "同一条文字"
+        manager, read, update, execute = self.make_manager(table)
+        await manager.speak("HA播报", "同一条文字")
+        self.assertEqual(read.await_count, 2)
+        update.assert_awaited_once()
         execute.assert_awaited_once()
 
 

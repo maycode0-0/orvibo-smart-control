@@ -1,7 +1,7 @@
 # ORVIBO Smart Control
 
 [![HACS Custom](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![Version](https://img.shields.io/badge/version-2.0.0b11-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
+[![Version](https://img.shields.io/badge/version-2.0.0b12-2f6f4e.svg)](custom_components/orvibo_smart_control/manifest.json)
 
 ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。它把 MixPad
 网关局域网直连与 ORVIBO 云端协议放在同一条设备、状态和控制链路中：能在 LAN
@@ -10,11 +10,10 @@ ORVIBO Smart Control 是一个面向 Home Assistant 的独立自定义集成。�
 ## 2.0 版本
 
 `2.0.0b0` 基于 `0.2.6b17`，开启 `2.0` 版本线，包含基于 HomeMate 5.2.6.307
-逆向证据的协议重构。当前 `2.0.0b11` 修复已关闭灯具仍被计为开启的问题：读取明确的
-开关状态，保留记忆亮度，仅有非零亮度的更新不会打开灯光实体。本版继承 b10 的
-MixPad 动态文字播报及之前的音乐、视频和门锁功能。
+逆向证据的协议重构。当前 `2.0.0b12` 增强 MixPad 场景播报确认：
+本版继承 b11 的灯光状态修复，以及 b10 的 MixPad 动态文字播报、音乐、视频和门锁功能。
 开发分支仍为 `2.0`，具体变更见
-[发布说明](docs/releases/2.0.0b11.md) 与 [CHANGELOG](CHANGELOG.md)。
+[发布说明](docs/releases/2.0.0b12.md) 与 [CHANGELOG](CHANGELOG.md)。
 
 本次统一类型 `0`、`116` 和其中虚拟 MixPad 调光器的亮度编码、回读及状态单位；
 为明确标记为 RF 的 `34/35` 窗帘提供开、关、停，不提供位置滑块或猜测的关闭状态。

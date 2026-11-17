@@ -11,9 +11,16 @@ import asyncio
 from collections.abc import Awaitable, Callable, Mapping
 from copy import deepcopy
 from dataclasses import dataclass, field
+import logging
 import math
 import re
+import time
 from typing import Any
+from uuid import uuid4
+
+_LOGGER = logging.getLogger(__name__)
+FRESHNESS_REVISION = 2
+UPDATE_ACK_REVISION = 1
 
 
 # Match the ordinary announcement editor (not the personalized wake-word editor).
@@ -44,12 +51,83 @@ class SpeechError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class SpeechUpdateResult:
+    """A correlated update ACK with a bounded, text-free public summary."""
+
+    accepted: bool
+    details: dict[str, Any] = field(repr=False)
+
+    def __bool__(self) -> bool:
+        return self.accepted
+
+
+def summarize_update_ack(response: object, binding: Mapping[str, Any]) -> SpeechUpdateResult:
+    """Check cmd195 action results without treating an ACK as playback proof.
+
+    The reference APK parses successList as SceneBind objects and failList as
+    action failures (core.g.T0 / core.f.F1 / core.f.D1). Missing action lists
+    remain explicitly unconfirmed, with the existing cloud readback required.
+    Do not copy arbitrary response values or speech into the public result.
+    """
+
+    if not isinstance(response, Mapping):
+        return SpeechUpdateResult(False, {"response_received": False})
+    status = response.get("status")
+    status_zero = type(status) is int and status == 0 or (
+        isinstance(status, str) and status == "0"
+    )
+    details: dict[str, Any] = {
+        "response_received": True,
+        "status_zero": status_zero,
+        "success_list_present": "successList" in response,
+        "fail_list_present": "failList" in response,
+        "binding_confirmation": "not_reported",
+    }
+    accepted = status_zero
+    for field_name, label in (("failList", "fail_count"), ("successList", "success_count")):
+        if field_name not in response:
+            details[label] = None
+            continue
+        rows = response[field_name]
+        if not isinstance(rows, list):
+            details[label] = None
+            details["list_format_valid"] = False
+            accepted = False
+            continue
+        details[label] = len(rows)
+        if field_name == "failList" and rows:
+            accepted = False
+    if "successList" in response:
+        rows = response["successList"]
+        # This request updates exactly one existing action. Reject a different
+        # action or conflicting echoed identifiers rather than guessing.
+        matches = (
+            isinstance(rows, list) and len(rows) == 1
+            and isinstance(rows[0], Mapping)
+            and rows[0].get("sceneBindId") == binding.get("sceneBindId")
+            and all(
+                key not in rows[0] or rows[0][key] == binding.get(key)
+                for key in ("uid", "deviceId")
+            )
+        )
+        details["binding_confirmation"] = "matched" if matches else "not_matched"
+        accepted = accepted and matches
+        if matches and "actionName" in rows[0]:
+            text_matches = rows[0]["actionName"] == binding.get("actionName")
+            details["returned_text_matches"] = text_matches
+            accepted = accepted and text_matches
+    details["accepted"] = bool(accepted)
+    return SpeechUpdateResult(bool(accepted), details)
+
+
+@dataclass(frozen=True, slots=True)
 class SceneSpeechTarget:
     """One existing scene and its sole, updated TTS binding."""
 
     scene_no: str
     scene_id: int | None
     binding: dict[str, Any] = field(repr=False)
+    stored_text: object = field(default=None, repr=False)
 
 
 def validate_message(message: object) -> str:
@@ -273,6 +351,7 @@ def parse_speech_target(
         scene_no=scene["sceneNo"],
         scene_id=_scene_id(scene.get("sceneId")),
         binding=_binding_for_write(active_bindings[0], text),
+        stored_text=deepcopy(active_bindings[0].get("actionName")),
     )
 
 
@@ -282,7 +361,7 @@ class SpeechManager:
     def __init__(
         self,
         read_table: Callable[[], Awaitable[object]],
-        update_scene: Callable[[str, dict[str, Any]], Awaitable[bool]],
+        update_scene: Callable[[str, dict[str, Any]], Awaitable[bool | SpeechUpdateResult]],
         execute_scene: Callable[[str, int | None], Awaitable[bool]],
     ) -> None:
         self._read_table = read_table
@@ -291,26 +370,88 @@ class SpeechManager:
         self._lock = asyncio.Lock()
 
     async def speak(self, scene_name: object, message: object) -> dict[str, Any]:
-        """Persist the last text and execute once, only after update succeeds."""
+        """Require a matching cloud readback before executing exactly once.
+
+        Readback verifies cloud configuration, not the panel's playback cache.
+        A stale, changed or unreadable scene is never executed by this call.
+        """
 
         name = _validate_scene_name(scene_name)
         text = validate_message(message)
         async with self._lock:
+            request_id = uuid4().hex[:12]
+            started = time.monotonic()
             try:
                 table = await self._read_table()
             except (OSError, RuntimeError, ValueError):
                 raise SpeechError("read_failed") from None
             target = parse_speech_target(table, name, text)
+            read_done = time.monotonic()
             try:
                 updated = await self._update_scene(target.scene_no, target.binding)
             except (OSError, RuntimeError, ValueError):
                 raise SpeechError("update_failed") from None
-            if updated is not True:
+            if isinstance(updated, SpeechUpdateResult):
+                update_ack = deepcopy(updated.details)
+                update_accepted = updated.accepted is True
+                ack_revision = UPDATE_ACK_REVISION
+            else:
+                # A speech.py-only upload can still run with the older SSL
+                # client; report this explicitly instead of claiming new checks.
+                update_ack = {"binding_confirmation": "client_not_upgraded"}
+                update_accepted = updated is True
+                ack_revision = 0
+            if not update_accepted:
+                _LOGGER.warning(
+                    "MixPad speech update rejected request_id=%s ack=%s; scene not executed",
+                    request_id, update_ack,
+                )
                 raise SpeechError("update_failed")
+            update_done = time.monotonic()
             try:
-                executed = await self._execute_scene(target.scene_no, target.scene_id)
+                verified = parse_speech_target(await self._read_table(), name, text)
+            except (OSError, RuntimeError, ValueError):
+                _LOGGER.warning("MixPad speech freshness revision=%s stage=readback_failed; scene not executed", FRESHNESS_REVISION)
+                raise SpeechError("update_failed") from None
+            # Preserve exactly the originally approved scene, device and action.
+            # parse_speech_target normalizes wire fields; stored_text separately
+            # retains the actual readback instead of substituting requested text.
+            if (verified.scene_no != target.scene_no
+                    or verified.binding != target.binding
+                    or verified.stored_text != text):
+                _LOGGER.warning(
+                    "MixPad speech freshness revision=%s stage=readback_mismatch text_matches=%s binding_matches=%s; scene not executed",
+                    FRESHNESS_REVISION, verified.stored_text == text,
+                    verified.scene_no == target.scene_no and verified.binding == target.binding,
+                )
+                raise SpeechError("update_failed")
+            verify_done = time.monotonic()
+            scene_id_changed = verified.scene_id != target.scene_id
+            _LOGGER.info(
+                "MixPad speech freshness revision=%s stage=cloud_text_verified scene_id_changed=%s read_ms=%d update_ms=%d verify_ms=%d",
+                FRESHNESS_REVISION, scene_id_changed, round((read_done - started) * 1000),
+                round((update_done - read_done) * 1000), round((verify_done - update_done) * 1000),
+            )
+            try:
+                executed = await self._execute_scene(verified.scene_no, verified.scene_id)
             except (OSError, RuntimeError, ValueError):
                 raise SpeechError("execute_failed") from None
             if executed is not True:
                 raise SpeechError("execute_failed")
-            return {"stage": "speech_scene_executed", "scene_no": target.scene_no}
+            execute_done = time.monotonic()
+            _LOGGER.info(
+                "MixPad speech freshness revision=%s stage=scene_executed execute_ms=%d; panel sound not verified",
+                FRESHNESS_REVISION, round((execute_done - verify_done) * 1000),
+            )
+            return {"stage": "speech_scene_executed", "scene_no": target.scene_no,
+                    "freshness_revision": FRESHNESS_REVISION, "cloud_text_verified": True,
+                    "scene_id_refreshed": scene_id_changed, "panel_sound_verified": False,
+                    "request_id": request_id, "update_ack_revision": ack_revision,
+                    "update_ack": update_ack,
+                    "timing_ms": {
+                        "read": round((read_done - started) * 1000),
+                        "update": round((update_done - read_done) * 1000),
+                        "verify": round((verify_done - update_done) * 1000),
+                        "execute": round((execute_done - verify_done) * 1000),
+                        "total": round((execute_done - started) * 1000),
+                    }}
